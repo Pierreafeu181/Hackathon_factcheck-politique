@@ -10,7 +10,16 @@ interface DeepgramResponse {
  * Transcrit un fichier audio à partir de son URL (Deepgram le télécharge lui-même),
  * avec séparation des voix pour distinguer l'invité du journaliste.
  */
-export async function transcribeUrl(audioUrl: string, apiKey: string, model = "nova-3"): Promise<Segment[]> {
+export function transcribeUrl(audioUrl: string, apiKey: string, model = "nova-3"): Promise<Segment[]> {
+  return listen(JSON.stringify({ url: audioUrl }), "application/json", apiKey, model);
+}
+
+/** Transcrit un fichier audio déjà téléchargé (ex. piste audio d'une vidéo YouTube sans sous-titres). */
+export function transcribeAudio(audio: Uint8Array, contentType: string, apiKey: string, model = "nova-3"): Promise<Segment[]> {
+  return listen(audio, contentType, apiKey, model);
+}
+
+async function listen(body: BodyInit, contentType: string, apiKey: string, model: string): Promise<Segment[]> {
   const params = new URLSearchParams({
     model,
     language: "fr",
@@ -21,8 +30,8 @@ export async function transcribeUrl(audioUrl: string, apiKey: string, model = "n
   });
   const res = await fetch(`https://api.deepgram.com/v1/listen?${params}`, {
     method: "POST",
-    headers: { Authorization: `Token ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ url: audioUrl }),
+    headers: { Authorization: `Token ${apiKey}`, "Content-Type": contentType },
+    body,
   });
   if (!res.ok) throw new Error(`Deepgram : HTTP ${res.status} ${await res.text()}`);
   return utterancesToSegments(await res.json());
@@ -43,4 +52,20 @@ export function guestSegments(segments: Segment[]): Segment[] {
   if (chars.size === 0) return segments;
   const guest = [...chars].sort((a, b) => b[1] - a[1])[0][0];
   return segments.filter((s) => s.speaker === guest);
+}
+
+/**
+ * Regroupe les phrases consécutives d'un même intervenant en blocs d'environ `chunkChars` caractères
+ * (horodatés au début du bloc), et coupe au-delà de `maxChars` : même format que les sous-titres YouTube.
+ */
+export function mergeSegments(segments: Segment[], chunkChars = 400, maxChars = 30_000): Segment[] {
+  const out: Segment[] = [];
+  let total = 0;
+  for (const s of segments) {
+    if ((total += s.text.length) > maxChars) break;
+    const last = out.at(-1);
+    if (last && last.speaker === s.speaker && last.text.length < chunkChars) last.text += " " + s.text;
+    else out.push({ ...s });
+  }
+  return out;
 }

@@ -1,11 +1,13 @@
 import { readFileSync } from "node:fs";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
-import type { ChatRequest, CheckRequest } from "../../shared/contract.ts";
+import type { ChatRequest, CheckRequest, Segment } from "../../shared/contract.ts";
 import { CheckCache } from "./cache.ts";
 import { chat, check } from "./checker.ts";
+import { mergeSegments, transcribeAudio } from "./deepgram.ts";
 import type { Feed } from "./rss.ts";
 import { Watcher } from "./watcher.ts";
+import { downloadYoutubeAudio, YOUTUBE_ID } from "./youtube-audio.ts";
 
 try {
   process.loadEnvFile(new URL("../.env", import.meta.url));
@@ -61,6 +63,35 @@ app.post("/api/chat", async (c) => {
   if (!req?.messages?.length) return c.json({ error: "Aucune question." }, 400);
   try {
     return c.json(await chat(req));
+  } catch (err) {
+    return c.json({ error: (err as Error).message }, 502);
+  }
+});
+
+/**
+ * Vidéo YouTube sans sous-titres : yt-dlp télécharge l'audio, Deepgram le transcrit.
+ * Une transcription à la fois (crédit Deepgram), résultats gardés en mémoire.
+ */
+const transcripts = new Map<string, Segment[]>();
+let transcribing: Promise<unknown> = Promise.resolve();
+app.post("/api/transcribe-youtube", async (c) => {
+  const { videoId } = await c.req.json<{ videoId?: string }>();
+  if (!videoId || !YOUTUBE_ID.test(videoId)) return c.json({ error: "Identifiant de vidéo YouTube invalide." }, 400);
+  const key = process.env.DEEPGRAM_API_KEY;
+  if (!key) return c.json({ error: "Cette vidéo n'a pas de sous-titres, et la transcription audio n'est pas activée (DEEPGRAM_API_KEY manquante dans server/.env)." }, 503);
+  const cached = transcripts.get(videoId);
+  if (cached) return c.json({ segments: cached });
+  const job = transcribing.then(async () => {
+    const { audio, contentType } = await downloadYoutubeAudio(videoId);
+    return mergeSegments(await transcribeAudio(audio, contentType, key, process.env.DEEPGRAM_MODEL || "nova-3"));
+  });
+  transcribing = job.catch(() => undefined);
+  try {
+    const segments = await job;
+    if (!segments.length) return c.json({ error: "Deepgram n'a reconnu aucune parole dans cette vidéo." }, 422);
+    if (transcripts.size >= 50) transcripts.delete(transcripts.keys().next().value!);
+    transcripts.set(videoId, segments);
+    return c.json({ segments });
   } catch (err) {
     return c.json({ error: (err as Error).message }, 502);
   }

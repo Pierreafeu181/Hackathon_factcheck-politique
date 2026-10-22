@@ -4,7 +4,10 @@
 import { Readability } from "@mozilla/readability";
 import type { CheckRequest, Segment } from "../../shared/contract.ts";
 
-export type ExtractResult = { ok: true; request: CheckRequest } | { ok: false; error: string };
+// `noTranscript` : vidéo YouTube sans sous-titres ; le panneau demande alors au serveur de transcrire l'audio.
+export type ExtractResult = { ok: true; request: CheckRequest } | { ok: false; error: string; noTranscript?: boolean };
+
+class NoTranscriptError extends Error {}
 
 const MAX_CHARS = 30_000;
 const CHUNK_CHARS = 400;
@@ -20,7 +23,7 @@ async function extract(): Promise<ExtractResult> {
     }
     return { ok: true, request: { source: { kind: "article", url, title }, segments: articleSegments() } };
   } catch (err) {
-    return { ok: false, error: (err as Error).message };
+    return { ok: false, error: (err as Error).message, noTranscript: err instanceof NoTranscriptError };
   }
 }
 
@@ -64,7 +67,7 @@ async function youtubeSegments(): Promise<Segment[]> {
       const found = readTranscript();
       if (found.length && found[0].text !== before) lines = found;
     }
-    if (!sawButton) throw new Error("Cette vidéo n'a pas de transcription : je ne peux pas la vérifier automatiquement. Vous pouvez quand même me poser vos questions.");
+    if (!sawButton) throw new NoTranscriptError("Cette vidéo n'a pas de sous-titres YouTube.");
     g.__verifpolTranscriptFor = videoId;
   }
   if (!lines.length) throw new Error("La transcription YouTube n'a pas pu être lue.");

@@ -2,7 +2,7 @@
 // le résultat arrive comme un message, et l'utilisateur pose ses questions dessous.
 
 import type {
-  ChatRequest, ChatResponse, CheckRequest, CheckResponse, Claim, EpisodeStatus, Verdict, WatchEpisode, WatchResponse,
+  ChatRequest, ChatResponse, CheckRequest, CheckResponse, Claim, EpisodeStatus, Segment, Verdict, WatchEpisode, WatchResponse,
 } from "../../shared/contract.ts";
 import type { ExtractResult } from "./extract.ts";
 import { guessFromTitle } from "./speaker.ts";
@@ -133,12 +133,15 @@ async function autoCheck(page: Page, force = false, intro?: string): Promise<voi
       func: () => (globalThis as any).__verifpolExtract(),
     });
     const extracted = result as ExtractResult;
-    if (!extracted.ok) throw new Error(extracted.error);
-    if (!extracted.request.segments.length) throw new Error("Je n'ai pas trouvé de texte à vérifier sur cette page.");
+    let request: CheckRequest;
+    if (extracted.ok) request = extracted.request;
+    else if (extracted.noTranscript && page.videoId) request = await transcribeAudio(page, msg);
+    else throw new Error(extracted.error);
+    if (!request.segments.length) throw new Error("Je n'ai pas trouvé de texte à vérifier sur cette page.");
     msg.setText("J'extrais les affirmations et je les compare aux données officielles… (30 s à 2 min)");
     const req: CheckRequest = {
-      ...extracted.request,
-      source: { ...extracted.request.source, title: page.title },
+      ...request,
+      source: { ...request.source, title: page.title },
       ...(page.speaker && { politician: { name: page.speaker } }),
     };
     const res = await checkClaims(req, force);
@@ -149,6 +152,20 @@ async function autoCheck(page: Page, force = false, intro?: string): Promise<voi
     msg.done();
   } finally {
     setAnalyzing(-1);
+  }
+}
+
+/** Vidéo sans sous-titres : le serveur télécharge l'audio (yt-dlp) et le fait transcrire par Deepgram. */
+async function transcribeAudio(page: Page, msg: BotMessage): Promise<CheckRequest> {
+  msg.setText("Pas de sous-titres YouTube : je fais transcrire l'audio par Deepgram… (20 s à 1 min)");
+  try {
+    const { segments } = await api<{ segments: Segment[] }>("/api/transcribe-youtube", {
+      method: "POST",
+      body: JSON.stringify({ videoId: page.videoId }),
+    });
+    return { source: { kind: "youtube", url: page.url, title: page.title }, segments };
+  } catch (err) {
+    throw new Error(`Cette vidéo n'a pas de sous-titres et je n'ai pas pu transcrire son audio : ${explain(err)} Vous pouvez quand même me poser vos questions.`);
   }
 }
 

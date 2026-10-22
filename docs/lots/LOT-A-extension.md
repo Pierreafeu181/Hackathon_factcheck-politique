@@ -5,7 +5,7 @@
 
 ## État actuel (branche de Sébastien, fusionnée)
 - **Extension TS** (`npm run build:ext` → `extension/dist`) : onglets « Cette page » et « Veille », extraction d'article (Readability) ou de transcript YouTube horodaté (`src/extract.ts`), vérification d'une sélection au clic droit, saut vidéo qui gère les pubs.
-- **Serveur Node** (port 8790) : `/api/check` relayé vers `CHECKER_URL` (sinon moteur de démo), `/api/watch` (veille RSS, transcription Deepgram des podcasts).
+- **Serveur Node** (port 8790) : `/api/check` relayé vers `CHECKER_URL` (sinon moteur de démo), `/api/watch` (veille RSS, transcription Deepgram des podcasts), `/api/transcribe-youtube` (vidéo sans sous-titres : audio téléchargé par yt-dlp, transcrit par Deepgram, une transcription à la fois, gardée en mémoire).
 - **Branchement au moteur Python** : `CHECKER_URL=http://localhost:8000/check` dans `server/.env`.
 
 ## Mode chat (branche lot-a-extension)
