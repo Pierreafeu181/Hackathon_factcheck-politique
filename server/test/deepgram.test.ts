@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { guestSegments, utterancesToSegments } from "../src/deepgram.ts";
+import { guestSegments, mergeSegments, utterancesToSegments } from "../src/deepgram.ts";
+import { downloadAudio, mediaUrl, YOUTUBE_ID } from "../src/media-audio.ts";
 
 test("les phrases Deepgram deviennent des segments horodatés avec l'intervenant", () => {
   const segments = utterancesToSegments({
@@ -33,4 +34,29 @@ test("l'invité est l'intervenant qui parle le plus", () => {
 test("sans information d'intervenant, on garde tout", () => {
   const segments = [{ text: "a" }, { text: "b" }];
   assert.deepEqual(guestSegments(segments), segments);
+});
+
+test("les phrases d'un même intervenant sont regroupées en blocs, et la longueur totale est plafonnée", () => {
+  const segments = [
+    { text: "a".repeat(100), start: 0, speaker: "0" },
+    { text: "b".repeat(100), start: 5, speaker: "0" },
+    { text: "c".repeat(100), start: 9, speaker: "1" },
+    { text: "d".repeat(100), start: 12, speaker: "1" },
+  ];
+  const merged = mergeSegments(segments, 150, 1000);
+  assert.deepEqual(merged.map((s) => [s.start, s.speaker, s.text.length]), [[0, "0", 201], [9, "1", 201]]);
+  assert.deepEqual(mergeSegments(segments, 150, 250).map((s) => s.text.length), [201]); // 3e et 4e phrases coupées
+  assert.equal(segments[0].text.length, 100); // pas de mutation de l'entrée
+});
+
+test("seules les plateformes vidéo connues sont passées à yt-dlp", async () => {
+  assert.ok(YOUTUBE_ID.test("J43DDa090TI"));
+  assert.ok(!YOUTUBE_ID.test("--exec=rm -rf"));
+  assert.equal(mediaUrl("https://www.tiktok.com/@a/video/123#x"), "https://www.tiktok.com/@a/video/123");
+  assert.equal(mediaUrl("https://vm.tiktok.com/ZM123/"), "https://vm.tiktok.com/ZM123/");
+  for (const bad of ["file:///etc/passwd", "http://localhost:8000/check", "http://192.168.1.1/", "http://[::1]/", "--exec=ls",
+    "https://evil-tiktok.com/v", "https://tiktok.com.evil.net/v", "https://youtube.com:8000/x", "https://a:b@youtube.com/x"]) {
+    assert.throws(() => mediaUrl(bad), /invalide|non prise en charge/, bad);
+  }
+  await assert.rejects(downloadAudio("http://127.0.0.1/x"), /non prise en charge/);
 });

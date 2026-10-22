@@ -7,6 +7,8 @@ import os
 import tempfile
 
 os.environ.setdefault("DB_PATH", os.path.join(tempfile.mkdtemp(), "selftest.db"))
+# Jamais la base de backend/.env : SQLite jetable, sauf SELFTEST_DATABASE_URL (Postgres vide et jetable).
+os.environ["DATABASE_URL"] = os.environ.get("SELFTEST_DATABASE_URL", "")
 
 from . import db, referentiel  # noqa: E402
 from .models import (ClaimResult, ClaimType, ExtractedClaim, Method, Speaker, Speech, TranscriptSegment,  # noqa: E402
@@ -62,6 +64,25 @@ def main() -> None:
     assert video_id_from_url("https://youtu.be/dQw4w9WgXcQ") == "dQw4w9WgXcQ"
     txt = to_prompt_text([TranscriptSegment(start=0, text="a"), TranscriptSegment(start=25, text="b")])
     assert txt == "[0s] a\n[25s] b", txt
+
+    # bornes : « plus de X » / « moins de X »
+    young = referentiel.load()["taux_chomage_moins_25"].obs[-1][1]
+    assert referentiel.check(claim(indicator="taux_chomage_moins_25", value=young - 1.5, unit=Unit.pourcent, bound="min")).verdict == Verdict.vrai
+    assert referentiel.check(claim(indicator="taux_chomage_moins_25", value=young - 1.5, unit=Unit.pourcent)).verdict != Verdict.vrai
+    assert referentiel.check(claim(indicator="taux_chomage_moins_25", value=young - 1.5, unit=Unit.pourcent, bound="max")).verdict == Verdict.faux
+    print("bornes : « plus de » / « moins de » OK")
+
+    # API INSEE en direct : lecture du XML SDMX (sans réseau)
+    from . import insee_api
+    xml = (b'<m:Data xmlns:m="urn:x"><m:DataSet><Series IDBANK="010777608" TITLE_FR="Dette - en point de PIB" '
+           b'UNIT_MEASURE="POURCENT" UNIT_MULT="0" FREQ="T"><Obs TIME_PERIOD="2026-Q2" OBS_VALUE="119.0"/>'
+           b'<Obs TIME_PERIOD="2026-Q1" OBS_VALUE="117.5"/><Obs TIME_PERIOD="2025-Q4" OBS_VALUE="NaN"/></Series>'
+           b'</m:DataSet></m:Data>')
+    s = insee_api.parse_series(xml)[0]
+    assert s["idbank"] == "010777608" and s["observations"] == [["2026-Q1", 117.5], ["2026-Q2", 119.0]], s
+    assert insee_api.run_tool("insee_lire_serie", {"idbank": "abc"})[2]  # idbank invalide → erreur, sans appel réseau
+    assert {t["name"] for t in insee_api.TOOLS} == insee_api.TOOL_NAMES
+    print("insee_api : parse SDMX OK")
 
     # base de données
     db.init()

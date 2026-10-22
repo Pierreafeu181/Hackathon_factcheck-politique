@@ -76,6 +76,10 @@ class ExtractedClaim(BaseModel):
     value: Optional[float] = Field(description="Valeur chiffrée affirmée, normalisée (7,5 % → 7.5)")
     unit: Optional[Unit]
     direction: Optional[str] = Field(description="'hausse' | 'baisse' | null, pour les évolutions et records")
+    bound: Optional[Literal["min", "max"]] = Field(
+        default=None,
+        description="'min' pour « plus de / au moins / dépasse / au-dessus de », 'max' pour « moins de / sous / "
+                    "en dessous de », null pour une valeur exacte ou approchée (« environ », « près de »)")
     period_start: Optional[str] = Field(description="Début de période, format AAAA ou AAAA-Tn, ou null")
     period_end: Optional[str] = Field(description="Fin de période, format AAAA ou AAAA-Tn, ou null (= aujourd'hui)")
     geo: str = Field(description="Périmètre géographique, 'France' par défaut")

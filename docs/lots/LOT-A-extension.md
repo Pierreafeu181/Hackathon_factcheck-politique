@@ -5,8 +5,15 @@
 
 ## État actuel (branche de Sébastien, fusionnée)
 - **Extension TS** (`npm run build:ext` → `extension/dist`) : onglets « Cette page » et « Veille », extraction d'article (Readability) ou de transcript YouTube horodaté (`src/extract.ts`), vérification d'une sélection au clic droit, saut vidéo qui gère les pubs.
-- **Serveur Node** (port 8790) : `/api/check` relayé vers `CHECKER_URL` (sinon moteur de démo), `/api/watch` (veille RSS, transcription Deepgram des podcasts).
+- **Serveur Node** (port 8790) : `/api/check` relayé vers `CHECKER_URL` (sinon moteur de démo), `/api/watch` (veille RSS, transcription Deepgram des podcasts), `/api/transcribe` (vidéo YouTube sans sous-titres ou d'une autre plateforme : audio téléchargé par yt-dlp + ffmpeg, transcrit par Deepgram, une transcription à la fois, adresses locales refusées, gardée en mémoire). L'extension analyse seule les vidéos et les articles de presse ; les autres pages ont un bouton « Analyser la page ».
 - **Branchement au moteur Python** : `CHECKER_URL=http://localhost:8000/check` dans `server/.env`.
+
+## Mode chat (branche lot-a-extension)
+- Le panneau est un **fil de discussion**. Sur une vidéo YouTube, la vérification part toute seule (onglet actif ou navigation sans rechargement) et arrive comme un message avec les cartes. Sur un article : pastille « Vérifier cette page ». Clic droit sur une sélection : vérifiée dans le fil.
+- Titre et chaîne via oEmbed ; orateur·rice deviné depuis le titre (`src/speaker.ts`, testé), sinon la chaîne ; ✎ pour corriger (retenu par chaîne) et revérifier (`/api/check?force=1`).
+- Chat : `POST /api/chat` (Node) → `POST /chat` (Python), avec les verdicts affichés en contexte. Bouton « Pourquoi ? » sur chaque carte.
+- Node garde les analyses en cache par page et orateur (`server/data/check-cache.json`), sauf les réponses de démo.
+- `extract.ts` : après une navigation, rouvre le panneau Transcription jusqu'à lire la nouvelle vidéo (20 s max).
 
 ## Tâches, par priorité
 1. **[P0] Bout en bout** : backend Python avec une clé Anthropic, `CHECKER_URL` renseigné, extension chargée. Tester sur 2 vidéos et 1 article. Le temps d'analyse est de 30 s à 2 min : vérifier que le `fetch` de `server/src/checker.ts` ne coupe pas avant, et sinon augmenter le délai ou afficher une progression.

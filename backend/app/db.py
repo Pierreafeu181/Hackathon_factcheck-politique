@@ -1,10 +1,13 @@
-"""Lot D — Stockage SQLite + agrégats par personnalité politique.
+"""Lot D — Stockage + agrégats par personnalité politique.
 
-Fichier : backend/factcheck.db (ignoré par git). Schéma : db/schema.sql.
-Pour passer sur Supabase/Postgres : garder les mêmes fonctions, changer `connect()`.
+Deux moteurs, même schéma (db/schema.sql) et mêmes requêtes :
+- SQLite par défaut : backend/factcheck.db (ignoré par git), chemin modifiable via DB_PATH ;
+- PostgreSQL (Aiven, Supabase…) si DATABASE_URL est défini dans backend/.env.
+Les requêtes sont écrites avec des `?` ; `_Conn` les traduit en `%s` pour psycopg.
 """
 from __future__ import annotations
 
+import atexit
 import json
 import os
 import re
@@ -13,10 +16,14 @@ import unicodedata
 from contextlib import contextmanager
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 from .models import ClaimResult, ExtractedClaim, PoliticianProfile, Speaker, Speech, Verification
 
 ROOT = Path(__file__).resolve().parents[2]
+load_dotenv(ROOT / "backend" / ".env")  # db est importé avant llm, qui charge aussi ce fichier
 DB_PATH = Path(os.getenv("DB_PATH", ROOT / "backend" / "factcheck.db"))
+DATABASE_URL = os.getenv("DATABASE_URL", "")  # vide = SQLite
 
 # Poids des verdicts pour le score de fiabilité (0-100). Voir docs/METHODOLOGIE.md.
 VERDICT_WEIGHTS = {"vrai": 1.0, "plutot_vrai": 0.75, "imprecis": 0.5, "trompeur": 0.25, "faux": 0.0}
@@ -28,8 +35,35 @@ def slug(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", s.lower()).strip("-")
 
 
+class _Conn:
+    """Connexion psycopg qui accepte les `?` de SQLite et renvoie des lignes indexées par nom."""
+
+    def __init__(self, conn):
+        self._conn = conn
+
+    def execute(self, sql: str, params: tuple = ()):
+        return self._conn.execute(sql.replace("?", "%s"), params)
+
+
+_pool = None
+
+
+def _pg_pool():
+    global _pool
+    if _pool is None:
+        from psycopg.rows import dict_row
+        from psycopg_pool import ConnectionPool
+        _pool = ConnectionPool(DATABASE_URL, min_size=1, max_size=5, kwargs={"row_factory": dict_row}, open=True)
+        atexit.register(_pool.close)
+    return _pool
+
+
 @contextmanager
 def connect():
+    if DATABASE_URL:
+        with _pg_pool().connection() as conn:  # commit en sortie, rollback si exception
+            yield _Conn(conn)
+        return
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
@@ -41,15 +75,19 @@ def connect():
 
 
 def init() -> None:
+    schema = (ROOT / "db" / "schema.sql").read_text(encoding="utf-8")
     with connect() as c:
-        c.executescript((ROOT / "db" / "schema.sql").read_text(encoding="utf-8"))
+        if DATABASE_URL:
+            c._conn.execute(schema)  # sans paramètres, psycopg accepte plusieurs instructions
+        else:
+            c.executescript(schema)
 
 
 def save_speech(speech: Speech, transcript_json: str | None) -> None:
     pid = slug(speech.speaker.name)
     with connect() as c:
         c.execute("INSERT INTO politicians(id, name, party) VALUES (?,?,?) "
-                  "ON CONFLICT(id) DO UPDATE SET party=COALESCE(excluded.party, party)",
+                  "ON CONFLICT(id) DO UPDATE SET party=COALESCE(excluded.party, politicians.party)",
                   (pid, speech.speaker.name, speech.speaker.party))
         c.execute("DELETE FROM speeches WHERE id=?", (speech.id,))  # ré-analyse = on remplace
         c.execute("INSERT INTO speeches(id, politician_id, video_id, url, title, date, transcript) VALUES (?,?,?,?,?,?,?)",
@@ -59,12 +97,21 @@ def save_speech(speech: Speech, transcript_json: str | None) -> None:
 def save_result(r: ClaimResult, speaker: Speaker) -> None:
     cl, v = r.claim, r.verification
     with connect() as c:
-        c.execute("INSERT OR REPLACE INTO claims VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        c.execute("INSERT INTO claims(id, speech_id, politician_id, quote, claim, timestamp_start, category, claim_type, "
+                  "indicator, value, unit, period_start, period_end, data) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+                  "ON CONFLICT(id) DO UPDATE SET speech_id=excluded.speech_id, politician_id=excluded.politician_id, "
+                  "quote=excluded.quote, claim=excluded.claim, timestamp_start=excluded.timestamp_start, "
+                  "category=excluded.category, claim_type=excluded.claim_type, indicator=excluded.indicator, "
+                  "value=excluded.value, unit=excluded.unit, period_start=excluded.period_start, "
+                  "period_end=excluded.period_end, data=excluded.data",
                   (r.id, r.speech_id, slug(speaker.name), cl.quote, cl.claim, cl.timestamp_start,
                    cl.category.value, cl.claim_type.value, cl.indicator, cl.value,
                    cl.unit.value if cl.unit else None, cl.period_start, cl.period_end, cl.model_dump_json()))
-        c.execute("INSERT OR REPLACE INTO verifications(claim_id, verdict, method, official_value, official_period, confidence, data) "
-                  "VALUES (?,?,?,?,?,?,?)",
+        c.execute("INSERT INTO verifications(claim_id, verdict, method, official_value, official_period, confidence, data) "
+                  "VALUES (?,?,?,?,?,?,?) ON CONFLICT(claim_id) DO UPDATE SET verdict=excluded.verdict, "
+                  "method=excluded.method, official_value=excluded.official_value, "
+                  "official_period=excluded.official_period, confidence=excluded.confidence, data=excluded.data, "
+                  "checked_at=CURRENT_TIMESTAMP",
                   (r.id, v.verdict.value, v.method.value, v.official_value, v.official_period, v.confidence, v.model_dump_json()))
 
 
@@ -96,7 +143,7 @@ def profile(pid: str) -> PoliticianProfile | None:
         p = c.execute("SELECT * FROM politicians WHERE id=?", (pid,)).fetchone()
         if p is None:
             return None
-        n_speeches = c.execute("SELECT COUNT(*) FROM speeches WHERE politician_id=?", (pid,)).fetchone()[0]
+        n_speeches = c.execute("SELECT COUNT(*) AS n FROM speeches WHERE politician_id=?", (pid,)).fetchone()["n"]
         rows = c.execute("SELECT c.category, v.verdict FROM claims c JOIN verifications v ON v.claim_id=c.id "
                          "WHERE c.politician_id=?", (pid,)).fetchall()
     verdicts: dict[str, int] = {}

@@ -124,6 +124,19 @@ def value_at(s: Series, period: str | None) -> tuple[float, str] | None:
 # ---------------------------------------------------------------- comparaison
 
 
+def _gap(claimed: float, official: float, bound: str | None) -> float:
+    """Écart entre l'affirmé et l'officiel. Avec « plus de X » (min) ou « moins de X » (max),
+    il est nul dès que l'officiel respecte la borne ; sinon, c'est la distance à la borne."""
+    if bound == "min":
+        return max(0.0, claimed - official)
+    if bound == "max":
+        return max(0.0, official - claimed)
+    return abs(claimed - official)
+
+
+BOUND_LABEL = {"min": "plus de ", "max": "moins de ", None: ""}
+
+
 def _grade(diff: float, tol: dict[str, float], worst: Verdict = Verdict.faux) -> Verdict:
     if diff <= tol["vrai"]:
         return Verdict.vrai
@@ -155,14 +168,15 @@ def _check_level(c: ExtractedClaim, s: Series) -> CheckResult | None:
     if got is None:
         return None
     official, period = got
+    said = BOUND_LABEL[c.bound]
     if s.is_rate:
-        diff = abs(c.value - official)
+        diff = _gap(c.value, official, c.bound)
         verdict = _grade(diff, RATE_TOL)
-        facts = f"Affirmé : {c.value} %. Officiel ({period}) : {official} %. Écart : {diff:.2f} point."
+        facts = f"Affirmé : {said}{c.value} %. Officiel ({period}) : {official} %. Écart : {diff:.2f} point."
     else:
-        diff = abs(c.value - official) / abs(official)
+        diff = _gap(c.value, official, c.bound) / abs(official)
         verdict = _grade(diff, VOLUME_TOL)
-        facts = f"Affirmé : {c.value} {s.unit}. Officiel ({period}) : {official} {s.unit}. Écart relatif : {diff:.1%}."
+        facts = f"Affirmé : {said}{c.value} {s.unit}. Officiel ({period}) : {official} {s.unit}. Écart relatif : {diff:.1%}."
     return CheckResult(verdict, official, period, facts, [s.source(period)])
 
 
@@ -189,12 +203,12 @@ def _check_evolution(c: ExtractedClaim, s: Series) -> CheckResult | None:
     claimed = abs(c.value)
     if c.unit == Unit.pourcent_variation or not s.is_rate:
         official_mag = abs(rel)
-        verdict = _grade(abs(claimed - official_mag) / max(official_mag, 1e-9), VOLUME_TOL, Verdict.trompeur)
-        facts += f" Affirmé : {claimed} % de variation."
+        verdict = _grade(_gap(claimed, official_mag, c.bound) / max(official_mag, 1e-9), VOLUME_TOL, Verdict.trompeur)
+        facts += f" Affirmé : {BOUND_LABEL[c.bound]}{claimed} % de variation."
     else:
         official_mag = abs(delta)
-        verdict = _grade(abs(claimed - official_mag), RATE_TOL, Verdict.trompeur)
-        facts += f" Affirmé : {claimed} point(s)."
+        verdict = _grade(_gap(claimed, official_mag, c.bound), RATE_TOL, Verdict.trompeur)
+        facts += f" Affirmé : {BOUND_LABEL[c.bound]}{claimed} point(s)."
         if c.unit == Unit.pourcent:
             facts += " Attention : l'orateur dit « % » pour un écart de taux (ce sont des points)."
     return CheckResult(verdict, round(delta, 2), f"{pa} → {pb}", facts, srcs)

@@ -115,3 +115,23 @@ def politician(pid: str):
     if not p:
         raise HTTPException(404, "Inconnu")
     return p
+
+
+# ---------------------------------------------------------------- Lot A : chat du panneau
+
+from . import chat, llm  # noqa: E402 (section du lot A, imports gardés ici pour éviter les conflits)
+from .chat import ChatRequest, ChatResponse  # noqa: E402
+from fastapi import Header  # noqa: E402
+
+
+@app.post("/chat", response_model=ChatResponse)
+def chat_route(req: ChatRequest, origin: str | None = Header(default=None)):
+    """Questions libres du panneau. Le serveur Node y transmet POST /api/chat."""
+    # Seul le serveur Node appelle cette route. Un navigateur envoie toujours un en-tête Origin :
+    # on le refuse, pour qu'aucun site web ne puisse dépenser des appels Claude via le CORS ouvert.
+    if origin:
+        raise HTTPException(403, "Route réservée au serveur Node.")
+    try:
+        return chat.answer(req)
+    except llm.LLMRefusal as e:
+        raise HTTPException(422, f"Question refusée : {e}")

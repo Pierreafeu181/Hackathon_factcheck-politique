@@ -1,11 +1,12 @@
--- Schéma de stockage. SQLite pour le hackathon ; compatible Postgres/Supabase
--- (remplacer TEXT JSON par JSONB, REAL par DOUBLE PRECISION si besoin).
+-- Schéma de stockage, commun à SQLite (défaut) et PostgreSQL (DATABASE_URL, ex. Aiven).
+-- N'utiliser que du SQL accepté par les deux : CURRENT_TIMESTAMP, DOUBLE PRECISION, ON CONFLICT…
+-- Les colonnes JSON restent en TEXT pour rester portables.
 
 CREATE TABLE IF NOT EXISTS politicians (
     id          TEXT PRIMARY KEY,          -- slug : "prenom-nom"
     name        TEXT NOT NULL,
     party       TEXT,
-    created_at  TEXT DEFAULT (datetime('now'))
+    created_at  TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS speeches (
@@ -16,7 +17,7 @@ CREATE TABLE IF NOT EXISTS speeches (
     title         TEXT,
     date          TEXT,                    -- AAAA-MM-JJ
     transcript    TEXT,                    -- JSON [{start,duration,text}]
-    analyzed_at   TEXT DEFAULT (datetime('now'))
+    analyzed_at   TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS claims (
@@ -25,11 +26,11 @@ CREATE TABLE IF NOT EXISTS claims (
     politician_id   TEXT NOT NULL REFERENCES politicians(id),
     quote           TEXT NOT NULL,
     claim           TEXT NOT NULL,
-    timestamp_start REAL,
+    timestamp_start DOUBLE PRECISION,
     category        TEXT NOT NULL,
     claim_type      TEXT NOT NULL,
     indicator       TEXT,
-    value           REAL,
+    value           DOUBLE PRECISION,
     unit            TEXT,
     period_start    TEXT,
     period_end      TEXT,
@@ -40,11 +41,11 @@ CREATE TABLE IF NOT EXISTS verifications (
     claim_id        TEXT PRIMARY KEY REFERENCES claims(id) ON DELETE CASCADE,
     verdict         TEXT NOT NULL,
     method          TEXT NOT NULL,
-    official_value  REAL,
+    official_value  DOUBLE PRECISION,
     official_period TEXT,
-    confidence      REAL,
+    confidence      DOUBLE PRECISION,
     data            TEXT NOT NULL,          -- JSON Verification complet (explication, sources…)
-    checked_at      TEXT DEFAULT (datetime('now'))
+    checked_at      TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_claims_politician ON claims(politician_id);

@@ -1,4 +1,4 @@
-import type { CheckRequest, CheckResponse, Claim, Evidence, Verdict } from "../../shared/contract.ts";
+import type { ChatRequest, ChatResponse, CheckRequest, CheckResponse, Claim, Evidence, Verdict } from "../../shared/contract.ts";
 
 /**
  * Point d'entrée de l'analyse. Si CHECKER_URL est défini, on transmet la requête au moteur
@@ -13,6 +13,28 @@ export async function check(req: CheckRequest): Promise<CheckResponse> {
     body: JSON.stringify(req),
   });
   if (!res.ok) throw new Error(`Moteur d'analyse : HTTP ${res.status}`);
+  return res.json();
+}
+
+/**
+ * Questions du chat : transmises à CHAT_URL, ou par défaut à la route /chat du moteur de CHECKER_URL.
+ * Sans moteur, une réponse de démo explique comment le brancher.
+ */
+export async function chat(req: ChatRequest): Promise<ChatResponse> {
+  const url = process.env.CHAT_URL || (process.env.CHECKER_URL ? new URL("/chat", process.env.CHECKER_URL).href : "");
+  if (!url) {
+    return {
+      answer: "[Démo] Le chat n'est pas branché. Lancez le backend Python et mettez CHECKER_URL=http://localhost:8000/check dans server/.env.",
+      sources: [],
+      demo: true,
+    };
+  }
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(req),
+  });
+  if (!res.ok) throw new Error(`Chat : HTTP ${res.status} ${await res.text()}`);
   return res.json();
 }
 

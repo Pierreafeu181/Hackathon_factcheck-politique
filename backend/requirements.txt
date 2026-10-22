@@ -4,3 +4,4 @@ anthropic>=0.75
 pydantic>=2.7
 python-dotenv>=1.0
 youtube-transcript-api>=1.2
+psycopg[binary,pool]>=3.2

@@ -1,14 +1,35 @@
-import type { CheckRequest, CheckResponse, Claim, EpisodeStatus, WatchEpisode, WatchResponse } from "../../shared/contract.ts";
+// Panneau latéral en mode chat : la vidéo YouTube ouverte est vérifiée automatiquement,
+// le résultat arrive comme un message, et l'utilisateur pose ses questions dessous.
+
+import type {
+  ChatRequest, ChatResponse, CheckRequest, CheckResponse, Claim, EpisodeStatus, Segment, Verdict, WatchEpisode, WatchResponse,
+} from "../../shared/contract.ts";
 import type { ExtractResult } from "./extract.ts";
+import { guessFromTitle } from "./speaker.ts";
 
 const DEFAULT_BACKEND = "http://localhost:8790";
 const WATCH_REFRESH_MS = 15_000;
+const TIME_POLL_MS = 2_000;
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
+interface Page {
+  tabId: number;
+  url: string;
+  kind: "youtube" | "video" | "article"; // video : TikTok, Instagram, X… (audio transcrit par le serveur)
+  videoId?: string;
+  title: string;
+  channel?: string;
+  speaker?: string;
+  claims: Claim[];
+}
+
 let backend = DEFAULT_BACKEND;
-/** Onglet dont viennent les affirmations affichées (pour sauter au bon moment de la vidéo). */
-let analyzedTabId: number | undefined;
+let current: Page | undefined;
+let detecting: string | undefined; // page en cours de détection (plusieurs événements Chrome par navigation)
+let history: ChatRequest["messages"] = [];
+let busy = false;
+let analyzing = 0; // analyses en cours (le bouton « Analyser » est désactivé pendant ce temps)
 
 // --- Appels au serveur ---------------------------------------------------------
 
@@ -19,64 +40,322 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
-const checkClaims = (req: CheckRequest) => api<CheckResponse>("/api/check", { method: "POST", body: JSON.stringify(req) });
+const checkClaims = (req: CheckRequest, force = false) =>
+  api<CheckResponse>(`/api/check${force ? "?force=1" : ""}`, { method: "POST", body: JSON.stringify(req) });
 
-// --- Onglet « Cette page » -----------------------------------------------------
+// --- Page courante -------------------------------------------------------------
 
-async function analyzeTab(tabId: number): Promise<void> {
-  setStatus("page-status", "Lecture de la page…");
-  $("claims").replaceChildren();
-  $<HTMLButtonElement>("analyze").disabled = true;
+const youtubeId = (url: string) => {
+  const u = new URL(url);
+  if (u.hostname.endsWith("youtube.com") && u.pathname === "/watch") return u.searchParams.get("v") ?? undefined;
+  if (u.hostname.endsWith("youtube.com") && u.pathname.startsWith("/shorts/")) return u.pathname.split("/")[2] || undefined;
+  if (u.hostname === "youtu.be") return u.pathname.slice(1) || undefined;
+  return undefined;
+};
+
+/** Pages vidéo des autres plateformes : l'audio est téléchargé et transcrit par le serveur (yt-dlp + Deepgram). */
+const VIDEO_PAGES: [RegExp, RegExp][] = [
+  [/(^|\.)tiktok\.com$/, /\/video\/\d+/],
+  [/(^|\.)instagram\.com$/, /^\/(reels?|p|tv)\/[\w-]+/],
+  [/(^|\.)(x|twitter)\.com$/, /\/status\/\d+/],
+  [/(^|\.)facebook\.com$/, /\/(watch|reel|videos)\b|\/share\/[rv]\//],
+  [/^fb\.watch$/, /./],
+  [/(^|\.)dailymotion\.com$/, /^\/video\//],
+  [/^dai\.ly$/, /./],
+  [/(^|\.)vimeo\.com$/, /^\/\d+/],
+  [/(^|\.)twitch\.tv$/, /\/(videos|clip)\//],
+  [/(^|\.)france\.tv$/, /\.html$/],
+  [/(^|\.)arte\.tv$/, /\/videos\//],
+  [/(^|\.)rumble\.com$/, /^\/v/],
+  [/(^|\.)linkedin\.com$/, /^\/posts\//],
+  [/(^|\.)threads\.(net|com)$/, /\/post\//],
+];
+const isVideoPage = (url: string) => {
+  const u = new URL(url);
+  return VIDEO_PAGES.some(([host, path]) => host.test(u.hostname) && path.test(u.pathname));
+};
+/** Réseaux où un post peut n'être que du texte ou une photo : on vérifie qu'il y a bien une vidéo. */
+const MAYBE_VIDEO = /(^|\.)(x|twitter|facebook|linkedin|threads|instagram)\.(com|net)$/;
+
+/** Attend jusqu'à 4 s qu'un lecteur <video> apparaisse (les réseaux sociaux chargent la vidéo après la page). */
+async function pageHasVideo(tabId: number): Promise<boolean> {
+  const [{ result }] = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: async () => {
+      for (let i = 0; i < 8; i++) {
+        if (document.querySelector("video")) return true;
+        await new Promise((r) => setTimeout(r, 500));
+      }
+      return false;
+    },
+  }).catch(() => [{ result: false }]);
+  return result === true;
+}
+const isVideo = (page?: Page) => page?.kind === "youtube" || page?.kind === "video";
+/** Clé d'une page pour le surlignage pendant la lecture et l'historique. */
+const mediaKey = (page: Page) => page.videoId ?? page.url;
+
+async function refreshPage(): Promise<void> {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (tab?.id === undefined || !tab.url || !/^https?:/.test(tab.url)) return;
+  const videoId = youtubeId(tab.url);
+  const key = videoId ?? tab.url;
+  if (key === (current?.videoId ?? current?.url) || key === detecting) return;
+  if (!videoId && tab.status !== "complete") return; // article : attendre le titre définitif
+  detecting = key;
   try {
-    await chrome.scripting.executeScript({ target: { tabId }, files: ["extract.js"] });
-    const [{ result }] = await chrome.scripting.executeScript({
-      target: { tabId },
-      func: () => (globalThis as any).__verifpolExtract(),
-    });
-    const extracted = result as ExtractResult;
-    if (!extracted.ok) throw new Error(extracted.error);
-    if (!extracted.request.segments.length) throw new Error("Aucun texte trouvé sur cette page.");
-    setStatus("page-status", `Analyse de ${extracted.request.segments.length} passages…`);
-    analyzedTabId = tabId;
-    showResult(await checkClaims(extracted.request));
-  } catch (err) {
-    setStatus("page-status", explain(err), true);
+    if (videoId) {
+      const meta = await oembed(videoId);
+      const title = meta.title ?? tab.title?.replace(/ - YouTube$/, "") ?? "";
+      const speaker = await speakerFor(title, meta.channel);
+      current = { tabId: tab.id, url: tab.url, kind: "youtube", videoId, title, channel: meta.channel, speaker, claims: [] };
+      renderContext();
+      setSuggestions([]);
+      void autoCheck(current);
+    } else if (isVideoPage(tab.url) && (!MAYBE_VIDEO.test(new URL(tab.url).hostname) || await pageHasVideo(tab.id))) {
+      const title = tab.title ?? tab.url;
+      current = { tabId: tab.id, url: tab.url, kind: "video", title, speaker: guessFromTitle(title), claims: [] };
+      renderContext();
+      setSuggestions([]);
+      void autoCheck(current);
+    } else {
+      current = { tabId: tab.id, url: tab.url, kind: "article", title: tab.title ?? tab.url, claims: [] };
+      renderContext();
+      if (await looksLikeArticle(tab.id)) void autoCheck(current, false, "Je lis l'article…");
+      else setSuggestions([], ["Analyser la page"]);
+    }
   } finally {
-    $<HTMLButtonElement>("analyze").disabled = false;
+    detecting = undefined;
   }
 }
 
-async function analyzeSelection(text: string, url: string, title: string): Promise<void> {
-  showTab("page");
-  setStatus("page-status", "Analyse de la sélection…");
-  $("claims").replaceChildren();
+/** Article de presse ? (balises des sites d'info, ou un long bloc <article>). Les accueils et recherches sont ignorés. */
+async function looksLikeArticle(tabId: number): Promise<boolean> {
+  const [{ result }] = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: () => {
+      const og = document.querySelector<HTMLMetaElement>('meta[property="og:type"]')?.content ?? "";
+      const ld = [...document.querySelectorAll('script[type="application/ld+json"]')].some((s) =>
+        /"@type"\s*:\s*\[?\s*"(News|Reportage|Analysis|Opinion)?Article"/.test(s.textContent ?? ""));
+      const text = document.querySelector("article")?.textContent?.length ?? 0;
+      return (og === "article" || ld) ? text > 600 || document.body.innerText.length > 2500 : text > 2500;
+    },
+  }).catch(() => [{ result: false }]);
+  return result === true;
+}
+
+/** Titre et chaîne d'une vidéo, fiables même juste après une navigation (le DOM de YouTube est en retard). */
+async function oembed(videoId: string): Promise<{ title?: string; channel?: string }> {
   try {
-    analyzedTabId = undefined;
-    showResult(await checkClaims({ source: { kind: "selection", url, title }, segments: [{ text }] }));
+    const r = await fetch(`https://www.youtube.com/oembed?format=json&url=https://www.youtube.com/watch?v=${videoId}`);
+    if (!r.ok) return {};
+    const { title, author_name } = await r.json();
+    return { title, channel: author_name };
+  } catch {
+    return {};
+  }
+}
+
+// --- Orateur·rice --------------------------------------------------------------
+// Le moteur a besoin de savoir qui parle (et ne stocke le résultat pour les profils qu'à cette condition).
+// On le devine depuis le titre (« Michel Barnier : … ») ; la correction est retenue par chaîne.
+// Jamais le nom de la chaîne : « RMC » ou « BFM Business » deviendraient des profils de politiques.
+
+async function speakerFor(title: string, channel?: string): Promise<string | undefined> {
+  const key = `speaker:${channel}`;
+  const saved = channel ? ((await chrome.storage.local.get(key)) as Record<string, string>)[key] : undefined;
+  return saved || guessFromTitle(title);
+}
+
+function renderContext(): void {
+  if (!current) return;
+  const page = current;
+  $("analyze").textContent = isVideo(page) ? "Analyser la vidéo" : "Analyser la page";
+  const parts: (Node | string)[] = [el("span", { className: "ctx-title" }, `${isVideo(page) ? "▶" : "📄"} ${page.title}`)];
+  if (isVideo(page)) {
+    const edit = el("button", { className: "link", title: "Corriger l'orateur·rice" }, `Orateur·rice : ${page.speaker ?? "inconnu·e, cliquez pour l'indiquer"} ✎`);
+    edit.addEventListener("click", () => void editSpeaker(page));
+    parts.push(edit);
+  }
+  $("ctx").replaceChildren(...parts);
+}
+
+async function editSpeaker(page: Page): Promise<void> {
+  const name = prompt("Qui parle dans cette vidéo ?", page.speaker ?? "")?.trim();
+  if (!name || name === page.speaker) return;
+  page.speaker = name;
+  if (page.channel) await chrome.storage.local.set({ [`speaker:${page.channel}`]: name });
+  renderContext();
+  void autoCheck(page, true);
+}
+
+// --- Vérification ----------------------------------------------------------------
+
+async function autoCheck(page: Page, force = false, intro?: string): Promise<void> {
+  const msg = botMessage(intro ?? (force ? `Je revérifie avec ${page.speaker} comme orateur·rice…` : "Je lis la page…"), true);
+  setAnalyzing(+1);
+  try {
+    let request: CheckRequest;
+    if (page.kind === "video") {
+      request = await transcribeAudio(page, msg);
+    } else {
+      await chrome.scripting.executeScript({ target: { tabId: page.tabId }, files: ["extract.js"] });
+      const [{ result }] = await chrome.scripting.executeScript({
+        target: { tabId: page.tabId },
+        func: () => (globalThis as any).__verifpolExtract(),
+      });
+      const extracted = result as ExtractResult;
+      if (extracted.ok) request = extracted.request;
+      else if (extracted.noTranscript && page.videoId) request = await transcribeAudio(page, msg);
+      else throw new Error(extracted.error);
+    }
+    if (!request.segments.length) throw new Error("Je n'ai pas trouvé de texte à vérifier sur cette page.");
+    msg.setText("J'extrais les affirmations et je les compare aux données officielles… (30 s à 2 min)");
+    const req: CheckRequest = {
+      ...request,
+      source: { ...request.source, title: page.title },
+      ...(page.speaker && { politician: { name: page.speaker } }),
+    };
+    const res = await checkClaims(req, force);
+    page.claims = res.claims;
+    showVerdicts(msg, page, res);
   } catch (err) {
-    setStatus("page-status", explain(err), true);
+    msg.fail(explain(err));
+  } finally {
+    setAnalyzing(-1);
   }
 }
 
-function showResult(res: CheckResponse): void {
-  setStatus("page-status", res.claims.length ? `${res.claims.length} affirmation(s) vérifiée(s).` : "Aucune affirmation vérifiable trouvée.");
-  const list = $("claims");
-  list.replaceChildren(...(res.demo ? [el("li", { className: "demo" }, "Mode démo : verdicts fictifs.")] : []), ...res.claims.map((c) => claimCard(c, analyzedTabId)));
+/** Vidéo sans texte lisible (YouTube sans sous-titres, TikTok, Instagram…) : le serveur télécharge l'audio et Deepgram le transcrit. */
+async function transcribeAudio(page: Page, msg: BotMessage): Promise<CheckRequest> {
+  msg.setText(page.kind === "youtube"
+    ? "Pas de sous-titres YouTube : je fais transcrire l'audio… (20 s à 1 min)"
+    : "Je récupère l'audio de la vidéo et je le fais transcrire… (20 s à 1 min)");
+  try {
+    const { segments } = await api<{ segments: Segment[] }>("/api/transcribe", {
+      method: "POST",
+      body: JSON.stringify(page.videoId ? { videoId: page.videoId } : { url: page.url }),
+    });
+    // « podcast » = audio transcrit (le contrat ne connaît pas encore les autres plateformes vidéo)
+    return { source: { kind: page.kind === "youtube" ? "youtube" : "podcast", url: page.url, title: page.title }, segments };
+  } catch (err) {
+    throw new Error(`Je n'ai pas pu transcrire l'audio de cette vidéo : ${explain(err)} Vous pouvez quand même me poser vos questions.`);
+  }
 }
 
-function claimCard(claim: Claim, tabId: number | undefined): HTMLElement {
-  const head = el("div", { className: "claim-head" }, el("span", { className: `verdict ${claim.verdict}` }, claim.verdict));
-  if (claim.start !== undefined && tabId !== undefined) {
+function setAnalyzing(delta: number): void {
+  analyzing += delta;
+  $<HTMLButtonElement>("analyze").disabled = analyzing > 0;
+}
+
+/** Bouton « Analyser » : relance l'analyse de la page ouverte en ignorant le cache du serveur. */
+async function analyzeNow(): Promise<void> {
+  if (!current) await refreshPage();
+  if (!current) {
+    botMessage("Ouvrez une vidéo YouTube ou un article, puis cliquez sur « Analyser ».");
+    return;
+  }
+  showTab("chat");
+  setSuggestions(contextQuestions(current.claims));
+  await autoCheck(current, true, isVideo(current) ? "Je relance l'analyse de la vidéo…" : "J'analyse la page…");
+}
+
+async function checkSelection(text: string, url: string, title: string): Promise<void> {
+  showTab("chat");
+  userMessage(`Vérifie : « ${text} »`);
+  const msg = botMessage("Je vérifie cette phrase…", true);
+  try {
+    const res = await checkClaims({ source: { kind: "selection", url, title }, segments: [{ text }] });
+    showVerdicts(msg, undefined, res);
+  } catch (err) {
+    msg.fail(explain(err));
+  }
+}
+
+const VERDICT_ORDER: Verdict[] = ["faux", "trompeur", "vrai", "invérifiable"];
+
+function showVerdicts(msg: BotMessage, page: Page | undefined, res: CheckResponse): void {
+  const n = res.claims.length;
+  const where = page ? ` dans « ${page.title} »` : "";
+  msg.setText(n
+    ? `J'ai vérifié ${n} affirmation${n > 1 ? "s" : ""}${where}.`
+    : `Je n'ai pas trouvé d'affirmation vérifiable${where}. Vous pouvez quand même me poser vos questions.`);
+  if (res.demo) msg.body.prepend(el("div", { className: "demo" }, "Mode démo : verdicts fictifs (moteur non branché)."));
+  if (n) msg.body.append(...verdictList(res.claims, page));
+  msg.done();
+  if (page) void saveHistory(page, res.claims);
+  setSuggestions(contextQuestions(res.claims));
+}
+
+/** Filtres par verdict (cliquables) + liste d'affirmations, triée dans l'ordre de la vidéo. */
+function verdictList(claims: Claim[], page: Page | undefined): HTMLElement[] {
+  const sorted = [...claims].sort((a, b) => (a.start ?? Infinity) - (b.start ?? Infinity));
+  const list = el("ol", { className: "claims" }, ...sorted.map((c) => claimItem(c, page)));
+  const counts = new Map<Verdict, number>();
+  for (const c of claims) counts.set(c.verdict, (counts.get(c.verdict) ?? 0) + 1);
+  const filters = el("div", { className: "filters", role: "toolbar", ariaLabel: "Filtrer par verdict" });
+  const select = (v: Verdict | "tout") => {
+    filters.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.v === v)));
+    list.querySelectorAll<HTMLElement>(".claim").forEach((li) => { li.hidden = v !== "tout" && li.dataset.verdict !== v; });
+    list.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  };
+  const button = (v: Verdict | "tout", label: string) => {
+    const b = el("button", { className: `filter${v === "tout" ? "" : " tinted"}`, style: v === "tout" ? "" : `--c:var(--${v})` }, label);
+    b.dataset.v = v;
+    b.setAttribute("aria-pressed", String(v === "tout"));
+    b.addEventListener("click", () => select(b.getAttribute("aria-pressed") === "true" && v !== "tout" ? "tout" : v));
+    return b;
+  };
+  filters.append(button("tout", `Tout · ${claims.length}`),
+    ...VERDICT_ORDER.filter((v) => counts.has(v)).map((v) => button(v, `${v} · ${counts.get(v)}`)));
+  return [filters, list];
+}
+
+/** « Plutôt vrai : … Correction : … » → nuance, explication et correction séparées pour l'affichage. */
+function splitExplanation(text: string): { nuance?: string; body: string; correction?: string } {
+  const m = text.match(/^(Plutôt vrai|Imprécis)\s*:\s*/);
+  let body = m ? text.slice(m[0].length) : text;
+  let correction: string | undefined;
+  const i = body.indexOf("Correction :");
+  if (i >= 0) {
+    correction = body.slice(i + "Correction :".length).trim();
+    body = body.slice(0, i).trim();
+  }
+  return { nuance: m?.[1], body, correction };
+}
+
+/** Une affirmation : une ligne (verdict + citation + moment) qui se déplie sur le détail. */
+function claimItem(claim: Claim, page: Page | undefined): HTMLElement {
+  const { nuance, body, correction } = splitExplanation(claim.explanation);
+  const row = el("summary", { className: "claim-row" },
+    el("span", { className: "badge", style: `--c:var(--${claim.verdict})` }, claim.verdict),
+    el("span", { className: "claim-quote" }, claim.quote));
+  const actions = el("div", { className: "claim-actions" });
+  if (claim.start !== undefined && page && isVideo(page)) {
     const seek = el("button", { className: "seek", title: "Aller à ce moment de la vidéo" }, `▶ ${formatTime(claim.start)}`);
-    seek.addEventListener("click", () => seekVideo(tabId, claim.start!));
-    head.append(seek);
+    seek.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); void seekVideo(page.tabId, claim.start!); });
+    row.append(seek);
   }
-  const sources = el("ul", { className: "sources" },
-    ...claim.sources.filter((s) => isWebUrl(s.url)).map((s) =>
-      el("li", {}, el("a", { href: s.url, target: "_blank", rel: "noopener" }, s.label), ...(s.official ? [el("span", { className: "official" }, "source officielle")] : [])),
-    ),
+  const why = el("button", { className: "link" }, "Pourquoi ce verdict ?");
+  why.addEventListener("click", () => void ask(`Pourquoi « ${claim.verdict} » pour : « ${claim.quote} » ?`));
+  actions.append(why);
+  const sources = claim.sources.filter((s) => isWebUrl(s.url));
+  const detail = el("div", { className: "claim-detail" },
+    ...(nuance ? [el("p", { className: "nuance" }, nuance)] : []),
+    el("p", { className: "explanation" }, body),
+    ...(correction ? [el("div", { className: "correction" }, el("strong", {}, "Correction"), el("p", {}, correction))] : []),
+    ...(sources.length ? [el("ul", { className: "sources" }, ...sources.map((s) =>
+      el("li", {}, el("a", { href: s.url, target: "_blank", rel: "noopener" }, s.label),
+        ...(s.official ? [el("span", { className: "official" }, "officielle")] : []))))] : []),
+    actions,
   );
-  return el("li", { className: "claim" }, head, el("p", { className: "quote" }, `« ${claim.quote} »`), el("p", { className: "explanation" }, claim.explanation), sources);
+  const li = el("li", { className: "claim" }, el("details", { className: "claim-box" }, row, detail));
+  li.dataset.verdict = claim.verdict;
+  if (page && isVideo(page) && claim.start !== undefined) {
+    li.dataset.video = mediaKey(page);
+    li.dataset.t = String(claim.start);
+  }
+  return li;
 }
 
 async function seekVideo(tabId: number, seconds: number): Promise<void> {
@@ -101,6 +380,169 @@ async function seekVideo(tabId: number, seconds: number): Promise<void> {
   });
 }
 
+/** Surligne la carte de l'affirmation en train d'être prononcée. */
+async function pollPlayback(): Promise<void> {
+  if (document.hidden || !isVideo(current) || !current!.claims.length) return;
+  const page = current!;
+  const [{ result }] = await chrome.scripting.executeScript({
+    target: { tabId: page.tabId },
+    func: () => (document.querySelector(".ad-showing") ? null : document.querySelector("video")?.currentTime ?? null),
+  }).catch(() => [{ result: null }]);
+  if (typeof result !== "number") return;
+  const cards = [...document.querySelectorAll<HTMLElement>(".claim[data-video]")].filter((c) => c.dataset.video === mediaKey(page));
+  let live: HTMLElement | undefined;
+  for (const c of cards) if (Number(c.dataset.t) <= result && result - Number(c.dataset.t) < 30) live = c;
+  cards.forEach((c) => c.classList.toggle("live", c === live));
+}
+
+// --- Chat ----------------------------------------------------------------------
+
+async function ask(text: string): Promise<void> {
+  text = text.trim();
+  if (!text || busy) return;
+  if ((text === "Analyser la page" || text === "Vérifier cette page") && current) {
+    setSuggestions(contextQuestions(current.claims));
+    userMessage(text);
+    return autoCheck(current);
+  }
+  busy = true;
+  $<HTMLButtonElement>("send").disabled = true;
+  $<HTMLTextAreaElement>("question").value = "";
+  fitInput();
+  userMessage(text);
+  history.push({ role: "user", content: text });
+  const msg = botMessage("…", true);
+  try {
+    const res = await api<ChatResponse>("/api/chat", {
+      method: "POST",
+      body: JSON.stringify({
+        messages: history,
+        video_id: current?.videoId,
+        title: current?.title,
+        speaker: current?.speaker,
+        claims: current?.claims,
+      } satisfies ChatRequest),
+    });
+    history.push({ role: "assistant", content: res.answer });
+    msg.setText(res.answer);
+    const sources = res.sources.filter((s) => isWebUrl(s.url));
+    if (sources.length) {
+      msg.body.append(el("ul", { className: "sources" }, ...sources.map((s) =>
+        el("li", {}, el("a", { href: s.url, target: "_blank", rel: "noopener" }, s.title)))));
+    }
+  } catch (err) {
+    history.pop();
+    msg.fail(explain(err));
+  } finally {
+    msg.done();
+    busy = false;
+    fitInput();
+  }
+}
+
+/** Champ de saisie : grandit avec le texte ; envoi possible seulement s'il y a du texte. */
+function fitInput(): void {
+  const input = $<HTMLTextAreaElement>("question");
+  input.style.height = "auto";
+  input.style.height = `${Math.min(input.scrollHeight, 140)}px`;
+  $<HTMLButtonElement>("send").disabled = busy || !input.value.trim();
+}
+
+// --- Suggestions de questions (elles tournent toutes les quelques secondes) -------
+
+const GENERIC_QUESTIONS = [
+  "Quel est le taux de chômage aujourd'hui ?",
+  "Quelle est l'inflation sur un an ?",
+  "Où en est la dette publique ?",
+  "Le chômage des jeunes a-t-il baissé depuis 2017 ?",
+  "Combien de demandeurs d'emploi en catégorie A ?",
+  "Chômage BIT ou France Travail : quelle différence ?",
+  "Le taux d'emploi est-il à un niveau record ?",
+  "La dette publique dépasse-t-elle 3 500 milliards ?",
+  "Comment vérifies-tu les affirmations ?",
+];
+const CHIPS_SHOWN = 2;
+const CHIPS_ROTATE_MS = 5_000;
+let chipPool: string[] = [];
+let chipPinned: string[] = [];
+let chipIndex = 0;
+
+const shuffle = <T,>(items: T[]) => items.map((v) => [Math.random(), v] as const).sort((a, b) => a[0] - b[0]).map(([, v]) => v);
+
+/** Questions liées à ce qu'on vient de vérifier (affirmations fausses ou trompeuses en tête). */
+function contextQuestions(claims: Claim[]): string[] {
+  const short = (q: string) => (q.length > 48 ? `${q.slice(0, 46).trimEnd()}…` : q);
+  const flagged = claims.filter((c) => c.verdict === "faux" || c.verdict === "trompeur").slice(0, 3);
+  return [
+    ...(claims.length ? ["Résume les verdicts"] : []),
+    ...flagged.map((c) => `Pourquoi « ${short(c.quote)} » est ${c.verdict} ?`),
+    ...(claims.some((c) => c.sources.some((s) => s.official)) ? ["Quelles sources officielles as-tu utilisées ?"] : []),
+  ];
+}
+
+/** `pinned` reste affiché (actions) ; le reste défile, questions du contexte d'abord. */
+function setSuggestions(context: string[], pinned: string[] = []): void {
+  chipPinned = pinned;
+  chipPool = [...context, ...shuffle(GENERIC_QUESTIONS.filter((q) => !context.includes(q)))];
+  chipIndex = 0;
+  renderChips();
+}
+
+function renderChips(): void {
+  const shown = Array.from({ length: Math.min(CHIPS_SHOWN, chipPool.length) }, (_, i) => chipPool[(chipIndex + i) % chipPool.length]);
+  $("chips").replaceChildren(...[...chipPinned, ...shown].map((label, i) => {
+    const chip = el("button", { className: `chip${i < chipPinned.length ? " pinned" : ""}` }, label);
+    chip.addEventListener("click", () => void ask(label));
+    return chip;
+  }));
+}
+
+function rotateChips(): void {
+  const box = $("chips");
+  if (document.hidden || box.matches(":hover") || chipPool.length <= CHIPS_SHOWN) return;
+  box.classList.add("fading");
+  setTimeout(() => {
+    chipIndex = (chipIndex + CHIPS_SHOWN) % chipPool.length;
+    renderChips();
+    box.classList.remove("fading");
+  }, 250);
+}
+
+// --- Messages du fil -------------------------------------------------------------
+
+interface BotMessage {
+  body: HTMLElement;
+  setText(text: string): void;
+  done(): void;
+  fail(text: string): void;
+}
+
+function userMessage(text: string): void {
+  append(el("div", { className: "msg me" }, text));
+}
+
+/** Message de l'assistant, modifiable tant qu'il est en cours. */
+function botMessage(text: string, pending = false): BotMessage {
+  const p = el("p", {}, text);
+  const body = el("div", { className: `msg bot${pending ? " pending" : ""}` }, p);
+  append(body);
+  return {
+    body,
+    setText: (t) => { p.textContent = t; scrollDown(); },
+    done: () => { body.classList.remove("pending"); scrollDown(); },
+    fail: (t) => { p.textContent = t; body.classList.remove("pending"); body.classList.add("error"); scrollDown(); },
+  };
+}
+
+function append(node: HTMLElement): void {
+  $("thread").append(node);
+  scrollDown();
+}
+
+function scrollDown(): void {
+  $("thread").scrollTop = $("thread").scrollHeight;
+}
+
 // --- Onglet « Veille » ---------------------------------------------------------
 
 const STATUS_LABEL: Record<EpisodeStatus, string> = {
@@ -113,18 +555,127 @@ const STATUS_LABEL: Record<EpisodeStatus, string> = {
 };
 
 async function loadWatch(): Promise<void> {
+  const history = await loadHistory();
+  renderHistory(history);
   try {
     const data = await api<WatchResponse>("/api/watch");
     const last = data.lastPollAt ? new Date(data.lastPollAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) : "jamais";
     $("watch-meta").textContent = `Dernier passage : ${last}`;
     setStatus("watch-status", data.transcriptionEnabled ? "" : "Transcription désactivée : ajoutez DEEPGRAM_API_KEY dans server/.env.");
     $("episodes").replaceChildren(...data.episodes.map(episodeCard));
+    renderSessionSummary(history, data.episodes);
   } catch (err) {
     setStatus("watch-status", explain(err), true);
+    renderSessionSummary(history, []);
   }
 }
 
-const isWebUrl = (url: string) => /^https?:\/\//.test(url);
+// --- Historique (pages analysées, gardé dans le navigateur) -----------------------
+
+interface HistoryEntry {
+  key: string;
+  url: string;
+  title: string;
+  kind: Page["kind"];
+  videoId?: string;
+  speaker?: string;
+  at: string;
+  session: string;
+  claims: Claim[];
+}
+
+const HISTORY_MAX = 40;
+let sessionId = "";
+
+/** Une « session » dure jusqu'à la fermeture du navigateur (chrome.storage.session). */
+async function initSession(): Promise<void> {
+  const stored = (await chrome.storage.session.get("sessionId")) as { sessionId?: string };
+  sessionId = stored.sessionId ?? crypto.randomUUID();
+  if (!stored.sessionId) await chrome.storage.session.set({ sessionId });
+}
+
+async function loadHistory(): Promise<HistoryEntry[]> {
+  return ((await chrome.storage.local.get("history")) as { history?: HistoryEntry[] }).history ?? [];
+}
+
+async function saveHistory(page: Page, claims: Claim[]): Promise<void> {
+  const key = page.videoId ?? page.url;
+  const entry: HistoryEntry = { key, url: page.url, title: page.title, kind: page.kind, videoId: page.videoId,
+    speaker: page.speaker, at: new Date().toISOString(), session: sessionId, claims };
+  const list = [entry, ...(await loadHistory()).filter((h) => h.key !== key)].slice(0, HISTORY_MAX);
+  await chrome.storage.local.set({ history: list });
+}
+
+/** Ouvre (ou réactive) l'onglet de la page ; l'analyse revient du cache du serveur, sans nouvel appel à Claude. */
+async function openPage(url: string, seconds?: number): Promise<void> {
+  const target = seconds !== undefined && youtubeId(url) ? `https://www.youtube.com/watch?v=${youtubeId(url)}&t=${Math.floor(seconds)}s` : url;
+  // Autres plateformes : pas de paramètre de temps fiable, on rouvre la vidéo au début.
+  const [existing] = await chrome.tabs.query({ url: url.split("#")[0] });
+  if (existing?.id !== undefined && seconds === undefined) await chrome.tabs.update(existing.id, { active: true });
+  else await chrome.tabs.create({ url: target });
+  showTab("chat");
+}
+
+function renderHistory(history: HistoryEntry[]): void {
+  $("history-empty").hidden = history.length > 0;
+  $("history").replaceChildren(...history.map((h) => {
+    const counts = VERDICT_ORDER.map((v) => [v, h.claims.filter((c) => c.verdict === v).length] as const).filter(([, k]) => k);
+    const when = new Date(h.at).toLocaleString("fr-FR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+    const open = el("button", { className: "history-item", title: "Rouvrir : les verdicts reviennent sans nouvelle analyse" },
+      el("span", { className: "history-title" }, `${h.kind === "article" ? "📄" : "▶"} ${h.title}`),
+      el("span", { className: "meta" }, [when, h.speaker].filter(Boolean).join(" · ")),
+      el("span", { className: "mini-counts" }, ...(counts.length
+        ? counts.map(([v, k]) => el("span", { className: "mini", style: `--c:var(--${v})` }, `${k} ${v}`))
+        : [el("span", { className: "meta" }, "aucune affirmation vérifiable")])));
+    open.addEventListener("click", () => void openPage(h.url));
+    return el("li", {}, open);
+  }));
+}
+
+/**
+ * Affirmations fausses ou trompeuses de la session (pages vues + podcasts de la veille du jour).
+ * Une même phrase vue à plusieurs endroits (vidéo revue, extrait repris par un podcast) n'apparaît qu'une fois.
+ */
+function renderSessionSummary(history: HistoryEntry[], episodes: WatchEpisode[]): void {
+  type Seen = { title: string; url: string; seconds?: number };
+  const bad = (c: Claim) => c.verdict === "faux" || c.verdict === "trompeur";
+  const today = new Date().toDateString();
+  const found: { claim: Claim; seen: Seen }[] = [
+    ...history.filter((h) => h.session === sessionId).flatMap((h) =>
+      h.claims.filter(bad).map((claim) => ({ claim, seen: { title: h.title, url: h.url, seconds: h.kind !== "article" ? claim.start : undefined } }))),
+    ...episodes.filter((e) => e.claims && new Date(e.publishedAt).toDateString() === today).flatMap((e) =>
+      e.claims!.filter(bad).map((claim) => ({ claim, seen: { title: `${e.feedName} – ${e.title}`, url: e.url } }))),
+  ];
+  const byQuote = new Map<string, { claim: Claim; seen: Seen[] }>();
+  for (const { claim, seen } of found) {
+    const key = claim.quote.toLowerCase().normalize("NFD").replace(/[^a-z0-9]+/g, " ").trim();
+    const entry = byQuote.get(key) ?? byQuote.set(key, { claim, seen: [] }).get(key)!;
+    if (!entry.seen.some((s) => s.url === seen.url)) entry.seen.push(seen);
+  }
+  const items = [...byQuote.values()].sort((a, b) => VERDICT_ORDER.indexOf(a.claim.verdict) - VERDICT_ORDER.indexOf(b.claim.verdict));
+  const nFaux = items.filter((i) => i.claim.verdict === "faux").length;
+  const nTromp = items.length - nFaux;
+  $("summary-meta").textContent = `cette session${items.length ? ` · ${nFaux} faux · ${nTromp} trompeur${nTromp > 1 ? "s" : ""}` : ""}`;
+  $("summary-empty").hidden = items.length > 0;
+  $("session-summary").replaceChildren(...items.map(({ claim, seen }) => {
+    const { body, correction } = splitExplanation(claim.explanation);
+    const row = el("summary", { className: "claim-row" },
+      el("span", { className: "badge", style: `--c:var(--${claim.verdict})` }, claim.verdict),
+      el("span", { className: "claim-quote" }, claim.quote),
+      ...(seen.length > 1 ? [el("span", { className: "seen-count", title: "Vue dans plusieurs sources" }, `×${seen.length}`)] : []));
+    const links = seen.map(({ title, url, seconds }) => {
+      const go = el("button", { className: "link" }, seconds !== undefined ? `▶ ${formatTime(seconds)} · ${title}` : title);
+      go.addEventListener("click", () => void (isWebUrl(url) && openPage(url, seconds)));
+      return el("li", {}, go);
+    });
+    return el("li", { className: "claim" }, el("details", { className: "claim-box" }, row,
+      el("div", { className: "claim-detail" },
+        el("p", { className: "explanation" }, body),
+        ...(correction ? [el("div", { className: "correction" }, el("strong", {}, "Correction"), el("p", {}, correction))] : []),
+        el("p", { className: "seen-label" }, seen.length > 1 ? `Vue dans ${seen.length} sources` : "Vue dans"),
+        el("ul", { className: "seen" }, ...links))));
+  }));
+}
 
 function episodeCard(ep: WatchEpisode): HTMLElement {
   const date = new Date(ep.publishedAt).toLocaleString("fr-FR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
@@ -135,39 +686,34 @@ function episodeCard(ep: WatchEpisode): HTMLElement {
   if (ep.error) card.append(el("p", { className: "status error" }, ep.error));
   if (ep.kind === "youtube" && isWebUrl(ep.url)) {
     const open = el("button", {}, "Ouvrir et vérifier");
-    open.addEventListener("click", () => openAndAnalyze(ep.url));
+    // La vérification automatique se lance quand l'onglet de la vidéo devient actif.
+    open.addEventListener("click", () => { showTab("chat"); void chrome.tabs.create({ url: ep.url }); });
     card.append(open);
   }
   if (ep.claims) {
     card.append(el("details", {},
       el("summary", {}, `${ep.claims.length} affirmation(s)`),
-      el("ol", { className: "claims" }, ...ep.claims.map((c) => claimCard(c, undefined))),
+      ...verdictList(ep.claims, undefined),
     ));
   }
   return card;
 }
 
-/** Ouvre une vidéo dans un nouvel onglet et lance l'analyse une fois la page chargée. */
-async function openAndAnalyze(url: string): Promise<void> {
-  showTab("page");
-  setStatus("page-status", "Ouverture de la vidéo…");
-  const tab = await chrome.tabs.create({ url });
-  const listener = (tabId: number, info: chrome.tabs.OnUpdatedInfo) => {
-    if (tabId !== tab.id || info.status !== "complete") return;
-    chrome.tabs.onUpdated.removeListener(listener);
-    // Laisser à YouTube le temps d'afficher la description et le bouton de transcription.
-    setTimeout(() => void analyzeTab(tabId), 2500);
-  };
-  chrome.tabs.onUpdated.addListener(listener);
-}
-
 // --- Utilitaires ---------------------------------------------------------------
 
-function el<K extends keyof HTMLElementTagNameMap>(tag: K, props: Partial<HTMLElementTagNameMap[K]>, ...children: (Node | string)[]): HTMLElementTagNameMap[K] {
-  const node = Object.assign(document.createElement(tag), props);
+function el<K extends keyof HTMLElementTagNameMap>(
+  tag: K,
+  props: Partial<Omit<HTMLElementTagNameMap[K], "style">> & { style?: string },
+  ...children: (Node | string)[]
+): HTMLElementTagNameMap[K] {
+  const { style, ...rest } = props;
+  const node = Object.assign(document.createElement(tag), rest);
+  if (style) node.style.cssText = style;
   node.append(...children);
   return node;
 }
+
+const isWebUrl = (url: string) => /^https?:\/\//.test(url);
 
 function setStatus(id: string, text: string, isError = false): void {
   const node = $(id);
@@ -177,7 +723,7 @@ function setStatus(id: string, text: string, isError = false): void {
 
 function explain(err: unknown): string {
   const msg = (err as Error).message ?? String(err);
-  if (msg === "Failed to fetch") return `Serveur injoignable (${backend}). Lancez-le avec « npm run dev:server ».`;
+  if (msg === "Failed to fetch") return `Je n'arrive pas à joindre le serveur (${backend}). Lancez-le avec « npm run dev:server ».`;
   if (msg.includes("Cannot access") || msg.includes("chrome://")) return "Chrome ne permet pas d'analyser cette page.";
   return msg;
 }
@@ -189,11 +735,11 @@ function formatTime(s: number): string {
   return h ? `${h}:${String(m).padStart(2, "0")}:${sec}` : `${m}:${sec}`;
 }
 
-let watchTimer: number | undefined;
+let watchTimer: ReturnType<typeof setInterval> | undefined;
 
-function showTab(name: "page" | "watch"): void {
+function showTab(name: "chat" | "watch"): void {
   document.querySelectorAll<HTMLElement>(".tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === name));
-  $("tab-page").hidden = name !== "page";
+  $("tab-chat").hidden = name !== "chat";
   $("tab-watch").hidden = name !== "watch";
   clearInterval(watchTimer);
   if (name === "watch") {
@@ -208,7 +754,7 @@ async function consumePendingSelection(): Promise<void> {
   };
   if (!pendingSelection) return;
   await chrome.storage.session.remove("pendingSelection");
-  void analyzeSelection(pendingSelection.text, pendingSelection.url, pendingSelection.title);
+  void checkSelection(pendingSelection.text, pendingSelection.url, pendingSelection.title);
 }
 
 // --- Démarrage -----------------------------------------------------------------
@@ -223,12 +769,17 @@ async function init(): Promise<void> {
     void chrome.storage.sync.set({ backend });
   });
 
-  document.querySelectorAll<HTMLElement>(".tab").forEach((t) => t.addEventListener("click", () => showTab(t.dataset.tab as "page" | "watch")));
+  document.querySelectorAll<HTMLElement>(".tab").forEach((t) => t.addEventListener("click", () => showTab(t.dataset.tab as "chat" | "watch")));
 
-  $("analyze").addEventListener("click", async () => {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (tab?.id !== undefined) void analyzeTab(tab.id);
+  $("ask").addEventListener("submit", (e) => { e.preventDefault(); void ask($<HTMLTextAreaElement>("question").value); });
+  $("question").addEventListener("input", fitInput);
+  fitInput();
+  $("question").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void ask($<HTMLTextAreaElement>("question").value); }
   });
+
+  $("analyze").addEventListener("click", () => void analyzeNow());
+  $("reload").addEventListener("click", () => chrome.runtime.reload());
 
   $("refresh").addEventListener("click", async () => {
     try {
@@ -243,7 +794,23 @@ async function init(): Promise<void> {
   chrome.storage.session.onChanged.addListener((changes) => {
     if (changes.pendingSelection?.newValue) void consumePendingSelection();
   });
+
+  // YouTube change d'URL sans recharger la page : Chrome le signale via onUpdated.
+  chrome.tabs.onActivated.addListener(() => void refreshPage());
+  chrome.tabs.onUpdated.addListener((_id, change) => { if (change.url || change.status === "complete") void refreshPage(); });
+  setInterval(() => void pollPlayback(), TIME_POLL_MS);
+
+  const hello = botMessage("Bonjour ! Je vérifie les affirmations des responsables politiques à partir des données publiques.");
+  hello.body.append(el("ul", { className: "hello" },
+    el("li", {}, "Ouvrez une vidéo YouTube : je la vérifie toute seule."),
+    el("li", {}, "Un article de presse, un TikTok, un Reel, une vidéo X : pareil."),
+    el("li", {}, "Une phrase précise : sélectionnez-la, puis clic droit."),
+    el("li", {}, "Ensuite, posez vos questions ci-dessous.")));
+  setSuggestions([]);
+  setInterval(rotateChips, CHIPS_ROTATE_MS);
+  await initSession();
   await consumePendingSelection();
+  await refreshPage();
 }
 
 void init();
