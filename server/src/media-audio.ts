@@ -7,7 +7,9 @@ import { join } from "node:path";
 export const YOUTUBE_ID = /^[A-Za-z0-9_-]{11}$/;
 
 const MAX_BYTES = 200 * 1024 * 1024;
-const TIMEOUT_MS = 3 * 60_000;
+const TIMEOUT_MS = 5 * 60_000;
+/** Plateformes sans piste audio séparée (flux vidéo HLS) : on ne télécharge que les 30 premières minutes. */
+const VIDEO_ONLY_HOSTS = /(^|\.)(dailymotion\.com|dai\.ly|france\.tv|arte\.tv|twitch\.tv)$/;
 
 /** Plateformes vidéo prises en charge (même liste que VIDEO_PAGES dans l'extension, plus YouTube). */
 export const VIDEO_HOSTS = [
@@ -56,6 +58,7 @@ export async function downloadAudio(rawUrl: string, maxSeconds = 7200): Promise<
       // piste audio seule si elle existe, sinon la plus petite vidéo avec du son (Dailymotion, X…)
       "-f", "bestaudio/worst[acodec!=none]/worst",
       "--max-filesize", `${MAX_BYTES}`,
+      ...(VIDEO_ONLY_HOSTS.test(new URL(url).hostname) ? ["--download-sections", "*0-1800"] : []),
       "--match-filter", `duration<=?${maxSeconds}`, // « ? » : accepté si la plateforme ne donne pas la durée
       // Instagram, Facebook… exigent souvent un compte : option explicite pour réutiliser la session d'un navigateur.
       ...(process.env.YTDLP_COOKIES_FROM_BROWSER ? ["--cookies-from-browser", process.env.YTDLP_COOKIES_FROM_BROWSER] : []),
@@ -78,7 +81,7 @@ function run(bin: string, args: string[]): Promise<void> {
     let stderr = "";
     let failure: Error | undefined;
     const timer = setTimeout(() => {
-      failure = new Error("Téléchargement de l'audio trop long (plus de 3 min).");
+      failure = new Error("Téléchargement de l'audio trop long (plus de 5 min).");
       child.kill("SIGKILL");
     }, TIMEOUT_MS);
     child.stderr.on("data", (c: Buffer) => (stderr = (stderr + c.toString()).slice(-800)));

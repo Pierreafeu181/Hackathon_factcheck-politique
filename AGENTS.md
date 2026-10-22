@@ -122,6 +122,8 @@ python scripts/fetch_insee.py
 - [x] Vidéos YouTube sans sous-titres : le serveur Node télécharge l'audio (yt-dlp) et le fait transcrire par Deepgram (`/api/transcribe-youtube`) — Lot A
 - [x] Panneau façon ChatGPT : verdicts en liste dépliable, filtres par verdict, onglet Veille avec résumé faux/trompeur de la session (dédoublonné) et historique des pages analysées (`chrome.storage.local`) — Lot A
 - [x] Analyse automatique des articles de presse (og:type / JSON-LD NewsArticle) et des vidéos de toutes plateformes (TikTok, Instagram, X, Facebook, Dailymotion, Vimeo, Twitch, france.tv…) via `/api/transcribe` ; suggestions de questions qui tournent — Lot A
+- [x] Direct : bouton « ● Direct », son de l'onglet (chrome.tabCapture) → WebSocket `/api/live` → Deepgram en streaming → analyse toutes les ~45 s de parole. Marche sur n'importe quel site, y compris connecté — Lot A
+- [x] Garde-fous du chat : hors sujet (code, devoirs…), consignes de vote et injections refusés (`prompts/chat.md`)
 - [ ] Google Fact Check Tools en première étape de vérification — Lot C
 - [ ] Itérer les prompts sur 2-3 vraies vidéos — Lots B/C
 - [ ] Choisir et mettre en cache les vidéos de démo — Lot E

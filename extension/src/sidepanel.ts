@@ -239,7 +239,7 @@ async function transcribeAudio(page: Page, msg: BotMessage): Promise<CheckReques
     // « podcast » = audio transcrit (le contrat ne connaît pas encore les autres plateformes vidéo)
     return { source: { kind: page.kind === "youtube" ? "youtube" : "podcast", url: page.url, title: page.title }, segments };
   } catch (err) {
-    throw new Error(`Je n'ai pas pu transcrire l'audio de cette vidéo : ${explain(err)} Vous pouvez quand même me poser vos questions.`);
+    throw new Error(`Je n'ai pas pu télécharger cette vidéo : ${explain(err)} Lancez-la et cliquez sur « ● Direct » : j'écouterai le son de l'onglet pendant la lecture.`);
   }
 }
 
@@ -258,6 +258,128 @@ async function analyzeNow(): Promise<void> {
   showTab("chat");
   setSuggestions(contextQuestions(current.claims));
   await autoCheck(current, true, isVideo(current) ? "Je relance l'analyse de la vidéo…" : "J'analyse la page…");
+}
+
+// --- Direct : son de l'onglet → Deepgram en streaming → verdicts au fil de l'eau ------------
+
+interface LiveSession {
+  page: Page;
+  ws: WebSocket;
+  stream: MediaStream;
+  audio: AudioContext;
+  recorder?: MediaRecorder;
+  msg: BotMessage;
+  status: HTMLElement;
+  feed: HTMLElement;
+  list: HTMLOListElement;
+  claims: Claim[];
+}
+let live: LiveSession | undefined;
+
+function setLiveButton(on: boolean): void {
+  const b = $<HTMLButtonElement>("live");
+  b.classList.toggle("on", on);
+  b.textContent = on ? "■ Arrêter" : "● Direct";
+}
+
+/** Moment de la vidéo au démarrage, pour que ▶ renvoie au bon endroit (0 si pas de lecteur). */
+async function playbackTime(tabId: number): Promise<number> {
+  const [{ result }] = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: () => document.querySelector("video")?.currentTime ?? 0,
+  }).catch(() => [{ result: 0 }]);
+  return typeof result === "number" ? result : 0;
+}
+
+async function toggleLive(): Promise<void> {
+  if (live) return stopLive();
+  if (!current) await refreshPage();
+  const page = current;
+  if (!page) {
+    botMessage("Ouvrez l'onglet à écouter (direct, TV, vidéo), puis cliquez sur « ● Direct ».");
+    return;
+  }
+  showTab("chat");
+  const msg = botMessage("Je capte le son de l'onglet…", true);
+  let stream: MediaStream;
+  try {
+    const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: page.tabId });
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: { mandatory: { chromeMediaSource: "tab", chromeMediaSourceId: streamId } },
+    } as unknown as MediaStreamConstraints);
+  } catch (err) {
+    msg.fail(`Je n'ai pas pu capter le son de cet onglet (${(err as Error).message}). Cliquez sur l'icône Vérif'Pol depuis cet onglet, puis réessayez.`);
+    return;
+  }
+  // La capture coupe le son de l'onglet : on le renvoie vers les haut-parleurs.
+  const audio = new AudioContext();
+  audio.createMediaStreamSource(stream).connect(audio.destination);
+  const status = el("p", { className: "live-status" }, "Connexion au serveur…");
+  const feed = el("div", { className: "live-feed" });
+  const list = el("ol", { className: "claims" });
+  msg.setText(`En direct : « ${page.title} »`);
+  msg.body.classList.remove("pending");
+  msg.body.append(status, feed, list);
+  page.claims = [];
+  const ws = new WebSocket(`${backend.replace(/^http/, "ws")}/api/live`);
+  live = { page, ws, stream, audio, msg, status, feed, list, claims: page.claims };
+  setLiveButton(true);
+  const offset = await playbackTime(page.tabId);
+  ws.onopen = () => ws.send(JSON.stringify({ type: "start", url: page.url, title: page.title, speaker: page.speaker, offset }));
+  ws.onmessage = (e) => onLiveMessage(JSON.parse(String(e.data)));
+  ws.onerror = () => { status.textContent = explain(new Error("Failed to fetch")); };
+  ws.onclose = () => endLive();
+  stream.getAudioTracks()[0]?.addEventListener("ended", () => stopLive()); // onglet fermé
+}
+
+function onLiveMessage(m: { type: string; text?: string; start?: number; claims?: Claim[]; error?: string }): void {
+  const s = live;
+  if (!s) return;
+  if (m.type === "ready") {
+    s.status.textContent = "J'écoute. Les verdicts arrivent toutes les ~45 s de parole.";
+    s.recorder = new MediaRecorder(s.stream, { mimeType: "audio/webm;codecs=opus" });
+    s.recorder.ondataavailable = (e) => { if (e.data.size && s.ws.readyState === WebSocket.OPEN) s.ws.send(e.data); };
+    s.recorder.start(250);
+  } else if (m.type === "transcript" && m.text) {
+    s.feed.append(el("span", {}, m.text));
+    while (s.feed.childElementCount > 3) s.feed.firstElementChild!.remove();
+    scrollDown();
+  } else if (m.type === "checking") {
+    s.status.textContent = "Je vérifie le dernier passage…";
+  } else if (m.type === "claims" && m.claims) {
+    s.claims.push(...m.claims);
+    s.list.append(...m.claims.map((c) => claimItem(c, s.page)));
+    s.status.textContent = `J'écoute · ${s.claims.length} affirmation${s.claims.length > 1 ? "s" : ""} vérifiée${s.claims.length > 1 ? "s" : ""}`;
+    setSuggestions(contextQuestions(s.claims));
+    scrollDown();
+  } else if (m.type === "error" && m.error) {
+    s.status.textContent = m.error;
+  }
+}
+
+function stopLive(): void {
+  const s = live;
+  if (!s) return;
+  s.status.textContent = "J'arrête et je vérifie le dernier passage…";
+  s.recorder?.state === "recording" && s.recorder.stop();
+  s.stream.getTracks().forEach((t) => t.stop());
+  void s.audio.close();
+  if (s.ws.readyState === WebSocket.OPEN) s.ws.send(JSON.stringify({ type: "stop" }));
+  else endLive();
+}
+
+/** Le serveur a fini (ou la connexion est tombée) : bilan et historique. */
+function endLive(): void {
+  const s = live;
+  if (!s) return;
+  live = undefined;
+  setLiveButton(false);
+  s.stream.getTracks().forEach((t) => t.stop());
+  if (s.audio.state !== "closed") void s.audio.close();
+  const n = s.claims.length;
+  s.status.classList.remove("live-status");
+  s.status.textContent = `Direct terminé · ${n} affirmation${n > 1 ? "s" : ""} vérifiée${n > 1 ? "s" : ""}.`;
+  if (n) void saveHistory(s.page, s.claims);
 }
 
 async function checkSelection(text: string, url: string, title: string): Promise<void> {
@@ -779,6 +901,7 @@ async function init(): Promise<void> {
   });
 
   $("analyze").addEventListener("click", () => void analyzeNow());
+  $("live").addEventListener("click", () => void toggleLive());
   $("reload").addEventListener("click", () => chrome.runtime.reload());
 
   $("refresh").addEventListener("click", async () => {
@@ -804,6 +927,7 @@ async function init(): Promise<void> {
   hello.body.append(el("ul", { className: "hello" },
     el("li", {}, "Ouvrez une vidéo YouTube : je la vérifie toute seule."),
     el("li", {}, "Un article de presse, un TikTok, un Reel, une vidéo X : pareil."),
+    el("li", {}, "Un direct, la TV, une vidéo réservée aux abonnés : « ● Direct » écoute le son de l'onglet."),
     el("li", {}, "Une phrase précise : sélectionnez-la, puis clic droit."),
     el("li", {}, "Ensuite, posez vos questions ci-dessous.")));
   setSuggestions([]);
