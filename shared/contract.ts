@@ -21,6 +21,10 @@ export interface CheckRequest {
     title?: string;
   };
   segments: Segment[];
+  /** Qui parle. Si fourni, le moteur Python stocke le résultat pour les profils. */
+  politician?: { name: string; party?: string };
+  /** Date du discours, AAAA-MM-JJ. */
+  date?: string;
 }
 
 export interface Evidence {
@@ -76,4 +80,21 @@ export interface WatchResponse {
   episodes: WatchEpisode[];
   lastPollAt?: string;
   transcriptionEnabled: boolean;
+}
+
+/** POST /api/chat (serveur Node → moteur Python /chat) */
+export interface ChatRequest {
+  messages: { role: "user" | "assistant"; content: string }[];
+  video_id?: string;
+  title?: string;
+  speaker?: string;
+  /** Verdicts déjà affichés, donnés au chat comme contexte. */
+  claims?: Claim[];
+}
+
+export interface ChatResponse {
+  answer: string;
+  sources: { title: string; url: string }[];
+  /** true quand la réponse vient du faux chat de démo. */
+  demo?: boolean;
 }

@@ -9,28 +9,29 @@
     <header>
       <h1>Vérif'Pol</h1>
       <nav>
-        <button class="tab active" data-tab="page">Cette page</button>
+        <button class="tab active" data-tab="chat">Chat</button>
         <button class="tab" data-tab="watch">Veille</button>
       </nav>
     </header>
 
-    <main>
-      <section id="tab-page">
-        <button id="analyze" class="primary">Vérifier cette page</button>
-        <p class="hint">Astuce : sélectionnez une phrase, clic droit → « Vérifier cette phrase ».</p>
-        <p id="page-status" class="status"></p>
-        <ol id="claims" class="claims"></ol>
-      </section>
+    <section id="tab-chat">
+      <div id="ctx" class="ctx">Ouvrez une vidéo YouTube : elle sera vérifiée automatiquement.</div>
+      <div id="thread" aria-live="polite"></div>
+      <div id="chips"></div>
+      <form id="ask">
+        <textarea id="question" rows="1" placeholder="Pose ta question…"></textarea>
+        <button id="send" type="submit" title="Envoyer">↑</button>
+      </form>
+    </section>
 
-      <section id="tab-watch" hidden>
-        <div class="row">
-          <button id="refresh">Relancer la veille</button>
-          <span id="watch-meta" class="meta"></span>
-        </div>
-        <p id="watch-status" class="status"></p>
-        <ol id="episodes" class="episodes"></ol>
-      </section>
-    </main>
+    <section id="tab-watch" hidden>
+      <div class="row">
+        <button id="refresh">Relancer la veille</button>
+        <span id="watch-meta" class="meta"></span>
+      </div>
+      <p id="watch-status" class="status"></p>
+      <ol id="episodes" class="episodes"></ol>
+    </section>
 
     <footer>
       <label>

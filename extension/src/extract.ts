@@ -40,18 +40,32 @@ function articleSegments(): Segment[] {
 // --- YouTube -------------------------------------------------------------------
 
 async function youtubeSegments(): Promise<Segment[]> {
-  let lines = readTranscript();
+  const videoId = new URLSearchParams(location.search).get("v");
+  const g = globalThis as { __verifpolTranscriptFor?: string | null };
+  let lines = g.__verifpolTranscriptFor === videoId ? readTranscript() : [];
   if (!lines.length) {
     // La transcription n'est chargée qu'à l'ouverture du panneau « Afficher la transcription ».
-    document.querySelector<HTMLElement>("#description-inline-expander #expand, ytd-text-inline-expander #expand")?.click();
-    await sleep(500);
-    const button = document.querySelector<HTMLElement>("ytd-video-description-transcript-section-renderer button");
-    if (!button) throw new Error("Cette vidéo n'a pas de transcription disponible.");
-    button.click();
-    for (let i = 0; i < 30 && !lines.length; i++) {
+    // Juste après une navigation, YouTube n'a pas encore affiché la nouvelle description, et le panneau
+    // peut encore montrer la vidéo précédente : on réessaie d'ouvrir toutes les 3 s, 20 s au total.
+    const before = readTranscript()[0]?.text;
+    let sawButton = false;
+    for (let i = 0; i < 40 && !lines.length; i++) {
+      const panelOpen = [...document.querySelectorAll("ytd-engagement-panel-section-list-renderer")].some((p) =>
+        /transcript/i.test(p.getAttribute("target-id") ?? "") && p.getAttribute("visibility") === "ENGAGEMENT_PANEL_VISIBILITY_EXPANDED");
+      if (i % 6 === 0 && !panelOpen) {
+        document.querySelector<HTMLElement>("#description-inline-expander #expand, ytd-text-inline-expander #expand")?.click();
+        const button = document.querySelector<HTMLElement>("ytd-video-description-transcript-section-renderer button");
+        if (button) {
+          sawButton = true;
+          button.click();
+        }
+      }
       await sleep(500);
-      lines = readTranscript();
+      const found = readTranscript();
+      if (found.length && found[0].text !== before) lines = found;
     }
+    if (!sawButton) throw new Error("Cette vidéo n'a pas de transcription : je ne peux pas la vérifier automatiquement. Vous pouvez quand même me poser vos questions.");
+    g.__verifpolTranscriptFor = videoId;
   }
   if (!lines.length) throw new Error("La transcription YouTube n'a pas pu être lue.");
   return capLength(mergeLines(lines));

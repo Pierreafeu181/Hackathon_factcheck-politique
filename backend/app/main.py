@@ -115,3 +115,18 @@ def politician(pid: str):
     if not p:
         raise HTTPException(404, "Inconnu")
     return p
+
+
+# ---------------------------------------------------------------- Lot A : chat du panneau
+
+from . import chat, llm  # noqa: E402 (section du lot A, imports gardés ici pour éviter les conflits)
+from .chat import ChatRequest, ChatResponse  # noqa: E402
+
+
+@app.post("/chat", response_model=ChatResponse)
+def chat_route(req: ChatRequest):
+    """Questions libres du panneau. Le serveur Node y transmet POST /api/chat."""
+    try:
+        return chat.answer(req)
+    except llm.LLMRefusal as e:
+        raise HTTPException(422, f"Question refusée : {e}")

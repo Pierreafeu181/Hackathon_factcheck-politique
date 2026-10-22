@@ -41,6 +41,7 @@ Le schéma détaillé ci-dessous décrit le moteur Python. La partie « Chrome �
 | Méthode | Route | Rôle |
 |---|---|---|
 | POST | `/check` | **Moteur pour le serveur Node** : `CheckRequest` → `CheckResponse` (`shared/contract.ts`). Stocke en base seulement si `politician` est fourni |
+| POST | `/chat` | Chat du panneau, relayé par Node (`POST /api/chat`) : `ChatRequest` → `ChatResponse` (`shared/contract.ts`). Claude avec le référentiel, les verdicts affichés et le transcript en contexte, web en repli (`app/chat.py`) |
 | GET | `/health` | Vivant + nombre d'indicateurs chargés |
 | GET | `/indicators` | Liste des séries du référentiel (clé, libellé, dernier point) |
 | POST | `/analyze` | Body `AnalyzeRequest` → `AnalyzeResponse`. Mis en cache par `video_id` sauf `force: true` |

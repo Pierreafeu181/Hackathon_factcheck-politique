@@ -11,7 +11,7 @@ Il y a deux niveaux :
 // CheckRequest  (extension → serveur Node /api/check → moteur Python /check)
 { "source": { "kind": "youtube", "url": "…", "title": "…" },          // kind : article | youtube | selection | podcast
   "segments": [{ "text": "Le chômage est à 7 %…", "start": 801, "speaker": "1" }],
-  // facultatif, accepté par le Python mais pas encore dans contract.ts :
+  // facultatif (si politician est fourni, le moteur Python stocke le résultat pour les profils) :
   "politician": { "name": "…", "party": "…" }, "date": "AAAA-MM-JJ" }
 
 // CheckResponse
@@ -106,3 +106,4 @@ Identifiants : speech `yt:<video_id>` (ou `txt:<hash>`), claim `<speech_id>#<n>`
 
 - 2026-10-22 : v0.1, contrat initial.
 - 2026-10-22 : fusion avec la branche de Sébastien. `shared/contract.ts` devient le format d'échange ; ajout de `POST /check` et de son miroir Pydantic.
+- 2026-10-22 : `politician` et `date` ajoutés à `CheckRequest` dans `contract.ts` (déjà acceptés par le Python). Ajout de `ChatRequest` / `ChatResponse` (`POST /api/chat` → `POST /chat`), hors format de verdict.

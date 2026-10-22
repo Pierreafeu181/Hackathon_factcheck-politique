@@ -1,14 +1,34 @@
-import type { CheckRequest, CheckResponse, Claim, EpisodeStatus, WatchEpisode, WatchResponse } from "../../shared/contract.ts";
+// Panneau latéral en mode chat : la vidéo YouTube ouverte est vérifiée automatiquement,
+// le résultat arrive comme un message, et l'utilisateur pose ses questions dessous.
+
+import type {
+  ChatRequest, ChatResponse, CheckRequest, CheckResponse, Claim, EpisodeStatus, Verdict, WatchEpisode, WatchResponse,
+} from "../../shared/contract.ts";
 import type { ExtractResult } from "./extract.ts";
+import { guessFromTitle } from "./speaker.ts";
 
 const DEFAULT_BACKEND = "http://localhost:8790";
 const WATCH_REFRESH_MS = 15_000;
+const TIME_POLL_MS = 2_000;
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
+interface Page {
+  tabId: number;
+  url: string;
+  kind: "youtube" | "article";
+  videoId?: string;
+  title: string;
+  channel?: string;
+  speaker?: string;
+  claims: Claim[];
+}
+
 let backend = DEFAULT_BACKEND;
-/** Onglet dont viennent les affirmations affichées (pour sauter au bon moment de la vidéo). */
-let analyzedTabId: number | undefined;
+let current: Page | undefined;
+let detecting: string | undefined; // page en cours de détection (plusieurs événements Chrome par navigation)
+let history: ChatRequest["messages"] = [];
+let busy = false;
 
 // --- Appels au serveur ---------------------------------------------------------
 
@@ -19,64 +39,168 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
-const checkClaims = (req: CheckRequest) => api<CheckResponse>("/api/check", { method: "POST", body: JSON.stringify(req) });
+const checkClaims = (req: CheckRequest, force = false) =>
+  api<CheckResponse>(`/api/check${force ? "?force=1" : ""}`, { method: "POST", body: JSON.stringify(req) });
 
-// --- Onglet « Cette page » -----------------------------------------------------
+// --- Page courante -------------------------------------------------------------
 
-async function analyzeTab(tabId: number): Promise<void> {
-  setStatus("page-status", "Lecture de la page…");
-  $("claims").replaceChildren();
-  $<HTMLButtonElement>("analyze").disabled = true;
+const youtubeId = (url: string) => {
+  const u = new URL(url);
+  return u.hostname.endsWith("youtube.com") && u.pathname === "/watch" ? u.searchParams.get("v") ?? undefined : undefined;
+};
+
+async function refreshPage(): Promise<void> {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (tab?.id === undefined || !tab.url || !/^https?:/.test(tab.url)) return;
+  const videoId = youtubeId(tab.url);
+  const key = videoId ?? tab.url;
+  if (key === (current?.videoId ?? current?.url) || key === detecting) return;
+  if (!videoId && tab.status !== "complete") return; // article : attendre le titre définitif
+  detecting = key;
   try {
-    await chrome.scripting.executeScript({ target: { tabId }, files: ["extract.js"] });
+    if (videoId) {
+      const meta = await oembed(videoId);
+      const title = meta.title ?? tab.title?.replace(/ - YouTube$/, "") ?? "";
+      const speaker = await speakerFor(title, meta.channel);
+      current = { tabId: tab.id, url: tab.url, kind: "youtube", videoId, title, channel: meta.channel, speaker, claims: [] };
+      renderContext();
+      void autoCheck(current);
+    } else {
+      current = { tabId: tab.id, url: tab.url, kind: "article", title: tab.title ?? tab.url, claims: [] };
+      renderContext();
+      showChips(["Vérifier cette page", "Quel est le taux de chômage aujourd'hui ?"]);
+    }
+  } finally {
+    detecting = undefined;
+  }
+}
+
+/** Titre et chaîne d'une vidéo, fiables même juste après une navigation (le DOM de YouTube est en retard). */
+async function oembed(videoId: string): Promise<{ title?: string; channel?: string }> {
+  try {
+    const r = await fetch(`https://www.youtube.com/oembed?format=json&url=https://www.youtube.com/watch?v=${videoId}`);
+    if (!r.ok) return {};
+    const { title, author_name } = await r.json();
+    return { title, channel: author_name };
+  } catch {
+    return {};
+  }
+}
+
+// --- Orateur·rice --------------------------------------------------------------
+// Le moteur a besoin de savoir qui parle (et ne stocke le résultat pour les profils qu'à cette condition).
+// On le devine depuis le titre (« Michel Barnier : … »), sinon la chaîne ; la correction est retenue par chaîne.
+
+async function speakerFor(title: string, channel?: string): Promise<string | undefined> {
+  const key = `speaker:${channel}`;
+  const saved = channel ? ((await chrome.storage.local.get(key)) as Record<string, string>)[key] : undefined;
+  return saved || guessFromTitle(title) || channel;
+}
+
+function renderContext(): void {
+  if (!current) return;
+  const page = current;
+  const parts: (Node | string)[] = [el("span", { className: "ctx-title" }, `${page.kind === "youtube" ? "▶" : "📄"} ${page.title}`)];
+  if (page.kind === "youtube") {
+    const edit = el("button", { className: "link", title: "Corriger l'orateur·rice" }, `Orateur·rice : ${page.speaker ?? "inconnu"} ✎`);
+    edit.addEventListener("click", () => void editSpeaker(page));
+    parts.push(edit);
+  }
+  $("ctx").replaceChildren(...parts);
+}
+
+async function editSpeaker(page: Page): Promise<void> {
+  const name = prompt("Qui parle dans cette vidéo ?", page.speaker ?? "")?.trim();
+  if (!name || name === page.speaker) return;
+  page.speaker = name;
+  if (page.channel) await chrome.storage.local.set({ [`speaker:${page.channel}`]: name });
+  renderContext();
+  void autoCheck(page, true);
+}
+
+// --- Vérification ----------------------------------------------------------------
+
+async function autoCheck(page: Page, force = false): Promise<void> {
+  const msg = botMessage(force ? `Je revérifie avec ${page.speaker} comme orateur·rice…` : "Je lis la page…", true);
+  try {
+    await chrome.scripting.executeScript({ target: { tabId: page.tabId }, files: ["extract.js"] });
     const [{ result }] = await chrome.scripting.executeScript({
-      target: { tabId },
+      target: { tabId: page.tabId },
       func: () => (globalThis as any).__verifpolExtract(),
     });
     const extracted = result as ExtractResult;
     if (!extracted.ok) throw new Error(extracted.error);
-    if (!extracted.request.segments.length) throw new Error("Aucun texte trouvé sur cette page.");
-    setStatus("page-status", `Analyse de ${extracted.request.segments.length} passages…`);
-    analyzedTabId = tabId;
-    showResult(await checkClaims(extracted.request));
+    if (!extracted.request.segments.length) throw new Error("Je n'ai pas trouvé de texte à vérifier sur cette page.");
+    msg.setText("J'extrais les affirmations et je les compare aux données officielles… (30 s à 2 min)");
+    const req: CheckRequest = {
+      ...extracted.request,
+      source: { ...extracted.request.source, title: page.title },
+      ...(page.speaker && { politician: { name: page.speaker } }),
+    };
+    const res = await checkClaims(req, force);
+    page.claims = res.claims;
+    showVerdicts(msg, page, res);
   } catch (err) {
-    setStatus("page-status", explain(err), true);
-  } finally {
-    $<HTMLButtonElement>("analyze").disabled = false;
+    msg.setText(explain(err));
+    msg.done();
   }
 }
 
-async function analyzeSelection(text: string, url: string, title: string): Promise<void> {
-  showTab("page");
-  setStatus("page-status", "Analyse de la sélection…");
-  $("claims").replaceChildren();
+async function checkSelection(text: string, url: string, title: string): Promise<void> {
+  showTab("chat");
+  userMessage(`Vérifie : « ${text} »`);
+  const msg = botMessage("Je vérifie cette phrase…", true);
   try {
-    analyzedTabId = undefined;
-    showResult(await checkClaims({ source: { kind: "selection", url, title }, segments: [{ text }] }));
+    const res = await checkClaims({ source: { kind: "selection", url, title }, segments: [{ text }] });
+    showVerdicts(msg, undefined, res);
   } catch (err) {
-    setStatus("page-status", explain(err), true);
+    msg.setText(explain(err));
+    msg.done();
   }
 }
 
-function showResult(res: CheckResponse): void {
-  setStatus("page-status", res.claims.length ? `${res.claims.length} affirmation(s) vérifiée(s).` : "Aucune affirmation vérifiable trouvée.");
-  const list = $("claims");
-  list.replaceChildren(...(res.demo ? [el("li", { className: "demo" }, "Mode démo : verdicts fictifs.")] : []), ...res.claims.map((c) => claimCard(c, analyzedTabId)));
+function showVerdicts(msg: BotMessage, page: Page | undefined, res: CheckResponse): void {
+  const n = res.claims.length;
+  const where = page ? ` dans « ${page.title} »` : "";
+  msg.setText(n
+    ? `J'ai vérifié ${n} affirmation${n > 1 ? "s" : ""}${where} :`
+    : `Je n'ai pas trouvé d'affirmation vérifiable${where}. Vous pouvez quand même me poser vos questions.`);
+  if (res.demo) msg.body.prepend(el("div", { className: "demo" }, "Mode démo : verdicts fictifs (moteur non branché)."));
+  if (n) {
+    const counts = new Map<Verdict, number>();
+    for (const c of res.claims) counts.set(c.verdict, (counts.get(c.verdict) ?? 0) + 1);
+    msg.body.append(
+      el("div", { className: "stats" }, ...[...counts].map(([v, k]) => el("span", { className: "verdict", style: `--c:var(--${v})` }, `${v} · ${k}`))),
+      el("ol", { className: "claims" }, ...res.claims.map((c) => claimCard(c, page))),
+    );
+  }
+  msg.done();
+  showChips(n ? ["Résume les verdicts", "Quel est le taux de chômage aujourd'hui ?"] : ["Quel est le taux de chômage aujourd'hui ?"]);
 }
 
-function claimCard(claim: Claim, tabId: number | undefined): HTMLElement {
-  const head = el("div", { className: "claim-head" }, el("span", { className: `verdict ${claim.verdict}` }, claim.verdict));
-  if (claim.start !== undefined && tabId !== undefined) {
+function claimCard(claim: Claim, page: Page | undefined): HTMLElement {
+  const head = el("div", { className: "claim-head" }, el("span", { className: "verdict" }, claim.verdict));
+  if (claim.start !== undefined && page?.kind === "youtube") {
     const seek = el("button", { className: "seek", title: "Aller à ce moment de la vidéo" }, `▶ ${formatTime(claim.start)}`);
-    seek.addEventListener("click", () => seekVideo(tabId, claim.start!));
+    seek.addEventListener("click", () => void seekVideo(page.tabId, claim.start!));
     head.append(seek);
   }
-  const sources = el("ul", { className: "sources" },
-    ...claim.sources.filter((s) => isWebUrl(s.url)).map((s) =>
-      el("li", {}, el("a", { href: s.url, target: "_blank", rel: "noopener" }, s.label), ...(s.official ? [el("span", { className: "official" }, "source officielle")] : [])),
-    ),
+  const why = el("button", { className: "link" }, "Pourquoi ?");
+  why.addEventListener("click", () => void ask(`Pourquoi « ${claim.verdict} » pour : « ${claim.quote} » ?`));
+  const card = el("li", { className: "claim", style: `--c:var(--${claim.verdict})` },
+    head,
+    el("p", { className: "quote" }, `« ${claim.quote} »`),
+    el("p", { className: "explanation" }, claim.explanation),
+    el("ul", { className: "sources" }, ...claim.sources.filter((s) => isWebUrl(s.url)).map((s) =>
+      el("li", {}, el("a", { href: s.url, target: "_blank", rel: "noopener" }, s.label),
+        ...(s.official ? [el("span", { className: "official" }, "source officielle")] : [])))),
+    why,
   );
-  return el("li", { className: "claim" }, head, el("p", { className: "quote" }, `« ${claim.quote} »`), el("p", { className: "explanation" }, claim.explanation), sources);
+  if (page?.videoId && claim.start !== undefined) {
+    card.dataset.video = page.videoId;
+    card.dataset.t = String(claim.start);
+  }
+  return card;
 }
 
 async function seekVideo(tabId: number, seconds: number): Promise<void> {
@@ -99,6 +223,107 @@ async function seekVideo(tabId: number, seconds: number): Promise<void> {
     },
     args: [seconds],
   });
+}
+
+/** Surligne la carte de l'affirmation en train d'être prononcée. */
+async function pollPlayback(): Promise<void> {
+  if (document.hidden || current?.kind !== "youtube" || !current.claims.length) return;
+  const page = current;
+  const [{ result }] = await chrome.scripting.executeScript({
+    target: { tabId: page.tabId },
+    func: () => (document.querySelector(".ad-showing") ? null : document.querySelector("video")?.currentTime ?? null),
+  }).catch(() => [{ result: null }]);
+  if (typeof result !== "number") return;
+  const cards = [...document.querySelectorAll<HTMLElement>(`.claim[data-video="${page.videoId}"]`)];
+  let live: HTMLElement | undefined;
+  for (const c of cards) if (Number(c.dataset.t) <= result && result - Number(c.dataset.t) < 30) live = c;
+  cards.forEach((c) => c.classList.toggle("live", c === live));
+}
+
+// --- Chat ----------------------------------------------------------------------
+
+async function ask(text: string): Promise<void> {
+  text = text.trim();
+  if (!text || busy) return;
+  if (text === "Vérifier cette page" && current) {
+    showChips([]);
+    userMessage(text);
+    return autoCheck(current);
+  }
+  busy = true;
+  $<HTMLButtonElement>("send").disabled = true;
+  $<HTMLTextAreaElement>("question").value = "";
+  showChips([]);
+  userMessage(text);
+  history.push({ role: "user", content: text });
+  const msg = botMessage("…", true);
+  try {
+    const res = await api<ChatResponse>("/api/chat", {
+      method: "POST",
+      body: JSON.stringify({
+        messages: history,
+        video_id: current?.videoId,
+        title: current?.title,
+        speaker: current?.speaker,
+        claims: current?.claims,
+      } satisfies ChatRequest),
+    });
+    history.push({ role: "assistant", content: res.answer });
+    msg.setText(res.answer);
+    const sources = res.sources.filter((s) => isWebUrl(s.url));
+    if (sources.length) {
+      msg.body.append(el("ul", { className: "sources" }, ...sources.map((s) =>
+        el("li", {}, el("a", { href: s.url, target: "_blank", rel: "noopener" }, s.title)))));
+    }
+  } catch (err) {
+    history.pop();
+    msg.setText(explain(err));
+  } finally {
+    msg.done();
+    busy = false;
+    $<HTMLButtonElement>("send").disabled = false;
+  }
+}
+
+function showChips(labels: string[]): void {
+  $("chips").replaceChildren(...labels.map((label) => {
+    const chip = el("button", { className: "chip" }, label);
+    chip.addEventListener("click", () => void ask(label));
+    return chip;
+  }));
+}
+
+// --- Messages du fil -------------------------------------------------------------
+
+interface BotMessage {
+  body: HTMLElement;
+  setText(text: string): void;
+  done(): void;
+}
+
+function userMessage(text: string): void {
+  append(el("div", { className: "msg me" }, text));
+}
+
+/** Message de l'assistant, modifiable tant qu'il est en cours. */
+function botMessage(text: string, pending = false): BotMessage {
+  const p = el("p", {}, text);
+  const body = el("div", { className: `msg bot${pending ? " pending" : ""}` }, p);
+  append(body);
+  return {
+    body,
+    setText: (t) => { p.textContent = t; scrollDown(); },
+    done: () => { body.classList.remove("pending"); scrollDown(); },
+  };
+}
+
+function append(node: HTMLElement): void {
+  $("thread").append(node);
+  scrollDown();
+}
+
+function scrollDown(): void {
+  $("thread").scrollTop = $("thread").scrollHeight;
 }
 
 // --- Onglet « Veille » ---------------------------------------------------------
@@ -124,8 +349,6 @@ async function loadWatch(): Promise<void> {
   }
 }
 
-const isWebUrl = (url: string) => /^https?:\/\//.test(url);
-
 function episodeCard(ep: WatchEpisode): HTMLElement {
   const date = new Date(ep.publishedAt).toLocaleString("fr-FR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
   const card = el("li", { className: "episode" },
@@ -135,7 +358,8 @@ function episodeCard(ep: WatchEpisode): HTMLElement {
   if (ep.error) card.append(el("p", { className: "status error" }, ep.error));
   if (ep.kind === "youtube" && isWebUrl(ep.url)) {
     const open = el("button", {}, "Ouvrir et vérifier");
-    open.addEventListener("click", () => openAndAnalyze(ep.url));
+    // La vérification automatique se lance quand l'onglet de la vidéo devient actif.
+    open.addEventListener("click", () => { showTab("chat"); void chrome.tabs.create({ url: ep.url }); });
     card.append(open);
   }
   if (ep.claims) {
@@ -147,27 +371,21 @@ function episodeCard(ep: WatchEpisode): HTMLElement {
   return card;
 }
 
-/** Ouvre une vidéo dans un nouvel onglet et lance l'analyse une fois la page chargée. */
-async function openAndAnalyze(url: string): Promise<void> {
-  showTab("page");
-  setStatus("page-status", "Ouverture de la vidéo…");
-  const tab = await chrome.tabs.create({ url });
-  const listener = (tabId: number, info: chrome.tabs.OnUpdatedInfo) => {
-    if (tabId !== tab.id || info.status !== "complete") return;
-    chrome.tabs.onUpdated.removeListener(listener);
-    // Laisser à YouTube le temps d'afficher la description et le bouton de transcription.
-    setTimeout(() => void analyzeTab(tabId), 2500);
-  };
-  chrome.tabs.onUpdated.addListener(listener);
-}
-
 // --- Utilitaires ---------------------------------------------------------------
 
-function el<K extends keyof HTMLElementTagNameMap>(tag: K, props: Partial<HTMLElementTagNameMap[K]>, ...children: (Node | string)[]): HTMLElementTagNameMap[K] {
-  const node = Object.assign(document.createElement(tag), props);
+function el<K extends keyof HTMLElementTagNameMap>(
+  tag: K,
+  props: Partial<Omit<HTMLElementTagNameMap[K], "style">> & { style?: string },
+  ...children: (Node | string)[]
+): HTMLElementTagNameMap[K] {
+  const { style, ...rest } = props;
+  const node = Object.assign(document.createElement(tag), rest);
+  if (style) node.style.cssText = style;
   node.append(...children);
   return node;
 }
+
+const isWebUrl = (url: string) => /^https?:\/\//.test(url);
 
 function setStatus(id: string, text: string, isError = false): void {
   const node = $(id);
@@ -177,7 +395,7 @@ function setStatus(id: string, text: string, isError = false): void {
 
 function explain(err: unknown): string {
   const msg = (err as Error).message ?? String(err);
-  if (msg === "Failed to fetch") return `Serveur injoignable (${backend}). Lancez-le avec « npm run dev:server ».`;
+  if (msg === "Failed to fetch") return `Je n'arrive pas à joindre le serveur (${backend}). Lancez-le avec « npm run dev:server ».`;
   if (msg.includes("Cannot access") || msg.includes("chrome://")) return "Chrome ne permet pas d'analyser cette page.";
   return msg;
 }
@@ -189,11 +407,11 @@ function formatTime(s: number): string {
   return h ? `${h}:${String(m).padStart(2, "0")}:${sec}` : `${m}:${sec}`;
 }
 
-let watchTimer: number | undefined;
+let watchTimer: ReturnType<typeof setInterval> | undefined;
 
-function showTab(name: "page" | "watch"): void {
+function showTab(name: "chat" | "watch"): void {
   document.querySelectorAll<HTMLElement>(".tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === name));
-  $("tab-page").hidden = name !== "page";
+  $("tab-chat").hidden = name !== "chat";
   $("tab-watch").hidden = name !== "watch";
   clearInterval(watchTimer);
   if (name === "watch") {
@@ -208,7 +426,7 @@ async function consumePendingSelection(): Promise<void> {
   };
   if (!pendingSelection) return;
   await chrome.storage.session.remove("pendingSelection");
-  void analyzeSelection(pendingSelection.text, pendingSelection.url, pendingSelection.title);
+  void checkSelection(pendingSelection.text, pendingSelection.url, pendingSelection.title);
 }
 
 // --- Démarrage -----------------------------------------------------------------
@@ -223,11 +441,11 @@ async function init(): Promise<void> {
     void chrome.storage.sync.set({ backend });
   });
 
-  document.querySelectorAll<HTMLElement>(".tab").forEach((t) => t.addEventListener("click", () => showTab(t.dataset.tab as "page" | "watch")));
+  document.querySelectorAll<HTMLElement>(".tab").forEach((t) => t.addEventListener("click", () => showTab(t.dataset.tab as "chat" | "watch")));
 
-  $("analyze").addEventListener("click", async () => {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (tab?.id !== undefined) void analyzeTab(tab.id);
+  $("ask").addEventListener("submit", (e) => { e.preventDefault(); void ask($<HTMLTextAreaElement>("question").value); });
+  $("question").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void ask($<HTMLTextAreaElement>("question").value); }
   });
 
   $("refresh").addEventListener("click", async () => {
@@ -243,7 +461,16 @@ async function init(): Promise<void> {
   chrome.storage.session.onChanged.addListener((changes) => {
     if (changes.pendingSelection?.newValue) void consumePendingSelection();
   });
+
+  // YouTube change d'URL sans recharger la page : Chrome le signale via onUpdated.
+  chrome.tabs.onActivated.addListener(() => void refreshPage());
+  chrome.tabs.onUpdated.addListener((_id, change) => { if (change.url || change.status === "complete") void refreshPage(); });
+  setInterval(() => void pollPlayback(), TIME_POLL_MS);
+
+  botMessage("Bonjour ! Ouvrez une vidéo YouTube d'un·e responsable politique : je vérifie automatiquement ses affirmations, puis vous pouvez me poser vos questions. Sur un article, demandez « Vérifier cette page », ou sélectionnez une phrase puis clic droit.");
+  showChips(["Quel est le taux de chômage aujourd'hui ?"]);
   await consumePendingSelection();
+  await refreshPage();
 }
 
 void init();

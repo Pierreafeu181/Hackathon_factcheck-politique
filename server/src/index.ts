@@ -1,8 +1,9 @@
 import { readFileSync } from "node:fs";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
-import type { CheckRequest } from "../../shared/contract.ts";
-import { check } from "./checker.ts";
+import type { ChatRequest, CheckRequest } from "../../shared/contract.ts";
+import { CheckCache } from "./cache.ts";
+import { chat, check } from "./checker.ts";
 import type { Feed } from "./rss.ts";
 import { Watcher } from "./watcher.ts";
 
@@ -28,11 +29,24 @@ const app = new Hono();
 
 app.get("/api/health", (c) => c.json({ ok: true, checker: process.env.CHECKER_URL ? "équipe" : "démo" }));
 
+const cache = new CheckCache(new URL("../data/check-cache.json", import.meta.url).pathname);
+
+/** `?force=1` ignore le cache (ex. après correction de l'orateur). */
 app.post("/api/check", async (c) => {
   const req = await c.req.json<CheckRequest>();
   if (!req?.segments?.length) return c.json({ error: "Aucun texte à analyser." }, 400);
   try {
-    return c.json(await check(req));
+    return c.json(await cache.get(req, () => check(req), c.req.query("force") === "1"));
+  } catch (err) {
+    return c.json({ error: (err as Error).message }, 502);
+  }
+});
+
+app.post("/api/chat", async (c) => {
+  const req = await c.req.json<ChatRequest>();
+  if (!req?.messages?.length) return c.json({ error: "Aucune question." }, 400);
+  try {
+    return c.json(await chat(req));
   } catch (err) {
     return c.json({ error: (err as Error).message }, 502);
   }

@@ -112,7 +112,8 @@ python scripts/fetch_insee.py
 - [x] `POST /check` sur le moteur Python, compatible `shared/contract.ts` (autotest du mapping OK)
 - [ ] **Brancher et tester de bout en bout** : `CHECKER_URL=http://localhost:8000/check`, avec une vraie clé Anthropic (jamais testé avec le LLM)
 - [ ] Profils dans l'extension : l'onglet Profils de l'ancienne extension n'a pas été porté (API `GET /politicians` prête) — Lot A/D
-- [ ] Nom de l'orateur : `contract.ts` ne le transporte pas. Le Python accepte un champ optionnel `politician` ; décider si on l'ajoute au contrat — Lot 0
+- [x] Nom de l'orateur : `politician` et `date` ajoutés à `CheckRequest` dans `contract.ts` ; l'extension devine l'orateur depuis le titre (corrigeable)
+- [x] Panneau en mode chat : vérification automatique des vidéos YouTube, chat (`/api/chat` → `/chat`), « Pourquoi ? » par carte, carte en cours surlignée, cache des analyses côté Node — Lot A
 - [ ] Google Fact Check Tools en première étape de vérification — Lot C
 - [ ] Itérer les prompts sur 2-3 vraies vidéos — Lots B/C
 - [ ] Choisir et mettre en cache les vidéos de démo — Lot E
