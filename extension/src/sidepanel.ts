@@ -89,12 +89,13 @@ async function oembed(videoId: string): Promise<{ title?: string; channel?: stri
 
 // --- Orateur·rice --------------------------------------------------------------
 // Le moteur a besoin de savoir qui parle (et ne stocke le résultat pour les profils qu'à cette condition).
-// On le devine depuis le titre (« Michel Barnier : … »), sinon la chaîne ; la correction est retenue par chaîne.
+// On le devine depuis le titre (« Michel Barnier : … ») ; la correction est retenue par chaîne.
+// Jamais le nom de la chaîne : « RMC » ou « BFM Business » deviendraient des profils de politiques.
 
 async function speakerFor(title: string, channel?: string): Promise<string | undefined> {
   const key = `speaker:${channel}`;
   const saved = channel ? ((await chrome.storage.local.get(key)) as Record<string, string>)[key] : undefined;
-  return saved || guessFromTitle(title) || channel;
+  return saved || guessFromTitle(title);
 }
 
 function renderContext(): void {
@@ -102,7 +103,7 @@ function renderContext(): void {
   const page = current;
   const parts: (Node | string)[] = [el("span", { className: "ctx-title" }, `${page.kind === "youtube" ? "▶" : "📄"} ${page.title}`)];
   if (page.kind === "youtube") {
-    const edit = el("button", { className: "link", title: "Corriger l'orateur·rice" }, `Orateur·rice : ${page.speaker ?? "inconnu"} ✎`);
+    const edit = el("button", { className: "link", title: "Corriger l'orateur·rice" }, `Orateur·rice : ${page.speaker ?? "inconnu·e, cliquez pour l'indiquer"} ✎`);
     edit.addEventListener("click", () => void editSpeaker(page));
     parts.push(edit);
   }
