@@ -16,7 +16,7 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 interface Page {
   tabId: number;
   url: string;
-  kind: "youtube" | "article";
+  kind: "youtube" | "video" | "article"; // video : TikTok, Instagram, X… (audio transcrit par le serveur)
   videoId?: string;
   title: string;
   channel?: string;
@@ -47,8 +47,53 @@ const checkClaims = (req: CheckRequest, force = false) =>
 
 const youtubeId = (url: string) => {
   const u = new URL(url);
-  return u.hostname.endsWith("youtube.com") && u.pathname === "/watch" ? u.searchParams.get("v") ?? undefined : undefined;
+  if (u.hostname.endsWith("youtube.com") && u.pathname === "/watch") return u.searchParams.get("v") ?? undefined;
+  if (u.hostname.endsWith("youtube.com") && u.pathname.startsWith("/shorts/")) return u.pathname.split("/")[2] || undefined;
+  if (u.hostname === "youtu.be") return u.pathname.slice(1) || undefined;
+  return undefined;
 };
+
+/** Pages vidéo des autres plateformes : l'audio est téléchargé et transcrit par le serveur (yt-dlp + Deepgram). */
+const VIDEO_PAGES: [RegExp, RegExp][] = [
+  [/(^|\.)tiktok\.com$/, /\/video\/\d+/],
+  [/(^|\.)instagram\.com$/, /^\/(reels?|p|tv)\/[\w-]+/],
+  [/(^|\.)(x|twitter)\.com$/, /\/status\/\d+/],
+  [/(^|\.)facebook\.com$/, /\/(watch|reel|videos)\b|\/share\/[rv]\//],
+  [/^fb\.watch$/, /./],
+  [/(^|\.)dailymotion\.com$/, /^\/video\//],
+  [/^dai\.ly$/, /./],
+  [/(^|\.)vimeo\.com$/, /^\/\d+/],
+  [/(^|\.)twitch\.tv$/, /\/(videos|clip)\//],
+  [/(^|\.)france\.tv$/, /\.html$/],
+  [/(^|\.)arte\.tv$/, /\/videos\//],
+  [/(^|\.)rumble\.com$/, /^\/v/],
+  [/(^|\.)linkedin\.com$/, /^\/posts\//],
+  [/(^|\.)threads\.(net|com)$/, /\/post\//],
+];
+const isVideoPage = (url: string) => {
+  const u = new URL(url);
+  return VIDEO_PAGES.some(([host, path]) => host.test(u.hostname) && path.test(u.pathname));
+};
+/** Réseaux où un post peut n'être que du texte ou une photo : on vérifie qu'il y a bien une vidéo. */
+const MAYBE_VIDEO = /(^|\.)(x|twitter|facebook|linkedin|threads|instagram)\.(com|net)$/;
+
+/** Attend jusqu'à 4 s qu'un lecteur <video> apparaisse (les réseaux sociaux chargent la vidéo après la page). */
+async function pageHasVideo(tabId: number): Promise<boolean> {
+  const [{ result }] = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: async () => {
+      for (let i = 0; i < 8; i++) {
+        if (document.querySelector("video")) return true;
+        await new Promise((r) => setTimeout(r, 500));
+      }
+      return false;
+    },
+  }).catch(() => [{ result: false }]);
+  return result === true;
+}
+const isVideo = (page?: Page) => page?.kind === "youtube" || page?.kind === "video";
+/** Clé d'une page pour le surlignage pendant la lecture et l'historique. */
+const mediaKey = (page: Page) => page.videoId ?? page.url;
 
 async function refreshPage(): Promise<void> {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -65,15 +110,38 @@ async function refreshPage(): Promise<void> {
       const speaker = await speakerFor(title, meta.channel);
       current = { tabId: tab.id, url: tab.url, kind: "youtube", videoId, title, channel: meta.channel, speaker, claims: [] };
       renderContext();
+      setSuggestions([]);
+      void autoCheck(current);
+    } else if (isVideoPage(tab.url) && (!MAYBE_VIDEO.test(new URL(tab.url).hostname) || await pageHasVideo(tab.id))) {
+      const title = tab.title ?? tab.url;
+      current = { tabId: tab.id, url: tab.url, kind: "video", title, speaker: guessFromTitle(title), claims: [] };
+      renderContext();
+      setSuggestions([]);
       void autoCheck(current);
     } else {
       current = { tabId: tab.id, url: tab.url, kind: "article", title: tab.title ?? tab.url, claims: [] };
       renderContext();
-      showChips(["Vérifier cette page", "Quel est le taux de chômage aujourd'hui ?"]);
+      if (await looksLikeArticle(tab.id)) void autoCheck(current, false, "Je lis l'article…");
+      else setSuggestions([], ["Analyser la page"]);
     }
   } finally {
     detecting = undefined;
   }
+}
+
+/** Article de presse ? (balises des sites d'info, ou un long bloc <article>). Les accueils et recherches sont ignorés. */
+async function looksLikeArticle(tabId: number): Promise<boolean> {
+  const [{ result }] = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: () => {
+      const og = document.querySelector<HTMLMetaElement>('meta[property="og:type"]')?.content ?? "";
+      const ld = [...document.querySelectorAll('script[type="application/ld+json"]')].some((s) =>
+        /"@type"\s*:\s*\[?\s*"(News|Reportage|Analysis|Opinion)?Article"/.test(s.textContent ?? ""));
+      const text = document.querySelector("article")?.textContent?.length ?? 0;
+      return (og === "article" || ld) ? text > 600 || document.body.innerText.length > 2500 : text > 2500;
+    },
+  }).catch(() => [{ result: false }]);
+  return result === true;
 }
 
 /** Titre et chaîne d'une vidéo, fiables même juste après une navigation (le DOM de YouTube est en retard). */
@@ -102,9 +170,9 @@ async function speakerFor(title: string, channel?: string): Promise<string | und
 function renderContext(): void {
   if (!current) return;
   const page = current;
-  $("analyze").textContent = page.kind === "youtube" ? "Analyser la vidéo" : "Analyser la page";
-  const parts: (Node | string)[] = [el("span", { className: "ctx-title" }, `${page.kind === "youtube" ? "▶" : "📄"} ${page.title}`)];
-  if (page.kind === "youtube") {
+  $("analyze").textContent = isVideo(page) ? "Analyser la vidéo" : "Analyser la page";
+  const parts: (Node | string)[] = [el("span", { className: "ctx-title" }, `${isVideo(page) ? "▶" : "📄"} ${page.title}`)];
+  if (isVideo(page)) {
     const edit = el("button", { className: "link", title: "Corriger l'orateur·rice" }, `Orateur·rice : ${page.speaker ?? "inconnu·e, cliquez pour l'indiquer"} ✎`);
     edit.addEventListener("click", () => void editSpeaker(page));
     parts.push(edit);
@@ -127,16 +195,20 @@ async function autoCheck(page: Page, force = false, intro?: string): Promise<voi
   const msg = botMessage(intro ?? (force ? `Je revérifie avec ${page.speaker} comme orateur·rice…` : "Je lis la page…"), true);
   setAnalyzing(+1);
   try {
-    await chrome.scripting.executeScript({ target: { tabId: page.tabId }, files: ["extract.js"] });
-    const [{ result }] = await chrome.scripting.executeScript({
-      target: { tabId: page.tabId },
-      func: () => (globalThis as any).__verifpolExtract(),
-    });
-    const extracted = result as ExtractResult;
     let request: CheckRequest;
-    if (extracted.ok) request = extracted.request;
-    else if (extracted.noTranscript && page.videoId) request = await transcribeAudio(page, msg);
-    else throw new Error(extracted.error);
+    if (page.kind === "video") {
+      request = await transcribeAudio(page, msg);
+    } else {
+      await chrome.scripting.executeScript({ target: { tabId: page.tabId }, files: ["extract.js"] });
+      const [{ result }] = await chrome.scripting.executeScript({
+        target: { tabId: page.tabId },
+        func: () => (globalThis as any).__verifpolExtract(),
+      });
+      const extracted = result as ExtractResult;
+      if (extracted.ok) request = extracted.request;
+      else if (extracted.noTranscript && page.videoId) request = await transcribeAudio(page, msg);
+      else throw new Error(extracted.error);
+    }
     if (!request.segments.length) throw new Error("Je n'ai pas trouvé de texte à vérifier sur cette page.");
     msg.setText("J'extrais les affirmations et je les compare aux données officielles… (30 s à 2 min)");
     const req: CheckRequest = {
@@ -154,17 +226,20 @@ async function autoCheck(page: Page, force = false, intro?: string): Promise<voi
   }
 }
 
-/** Vidéo sans sous-titres : le serveur télécharge l'audio (yt-dlp) et le fait transcrire par Deepgram. */
+/** Vidéo sans texte lisible (YouTube sans sous-titres, TikTok, Instagram…) : le serveur télécharge l'audio et Deepgram le transcrit. */
 async function transcribeAudio(page: Page, msg: BotMessage): Promise<CheckRequest> {
-  msg.setText("Pas de sous-titres YouTube : je fais transcrire l'audio par Deepgram… (20 s à 1 min)");
+  msg.setText(page.kind === "youtube"
+    ? "Pas de sous-titres YouTube : je fais transcrire l'audio… (20 s à 1 min)"
+    : "Je récupère l'audio de la vidéo et je le fais transcrire… (20 s à 1 min)");
   try {
-    const { segments } = await api<{ segments: Segment[] }>("/api/transcribe-youtube", {
+    const { segments } = await api<{ segments: Segment[] }>("/api/transcribe", {
       method: "POST",
-      body: JSON.stringify({ videoId: page.videoId }),
+      body: JSON.stringify(page.videoId ? { videoId: page.videoId } : { url: page.url }),
     });
-    return { source: { kind: "youtube", url: page.url, title: page.title }, segments };
+    // « podcast » = audio transcrit (le contrat ne connaît pas encore les autres plateformes vidéo)
+    return { source: { kind: page.kind === "youtube" ? "youtube" : "podcast", url: page.url, title: page.title }, segments };
   } catch (err) {
-    throw new Error(`Cette vidéo n'a pas de sous-titres et je n'ai pas pu transcrire son audio : ${explain(err)} Vous pouvez quand même me poser vos questions.`);
+    throw new Error(`Je n'ai pas pu transcrire l'audio de cette vidéo : ${explain(err)} Vous pouvez quand même me poser vos questions.`);
   }
 }
 
@@ -181,8 +256,8 @@ async function analyzeNow(): Promise<void> {
     return;
   }
   showTab("chat");
-  showChips([]);
-  await autoCheck(current, true, current.kind === "youtube" ? "Je relance l'analyse de la vidéo…" : "J'analyse la page…");
+  setSuggestions(contextQuestions(current.claims));
+  await autoCheck(current, true, isVideo(current) ? "Je relance l'analyse de la vidéo…" : "J'analyse la page…");
 }
 
 async function checkSelection(text: string, url: string, title: string): Promise<void> {
@@ -209,7 +284,7 @@ function showVerdicts(msg: BotMessage, page: Page | undefined, res: CheckRespons
   if (n) msg.body.append(...verdictList(res.claims, page));
   msg.done();
   if (page) void saveHistory(page, res.claims);
-  showChips(n ? ["Résume les verdicts", "Quel est le taux de chômage aujourd'hui ?"] : ["Quel est le taux de chômage aujourd'hui ?"]);
+  setSuggestions(contextQuestions(res.claims));
 }
 
 /** Filtres par verdict (cliquables) + liste d'affirmations, triée dans l'ordre de la vidéo. */
@@ -256,7 +331,7 @@ function claimItem(claim: Claim, page: Page | undefined): HTMLElement {
     el("span", { className: "badge", style: `--c:var(--${claim.verdict})` }, claim.verdict),
     el("span", { className: "claim-quote" }, claim.quote));
   const actions = el("div", { className: "claim-actions" });
-  if (claim.start !== undefined && page?.kind === "youtube") {
+  if (claim.start !== undefined && page && isVideo(page)) {
     const seek = el("button", { className: "seek", title: "Aller à ce moment de la vidéo" }, `▶ ${formatTime(claim.start)}`);
     seek.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); void seekVideo(page.tabId, claim.start!); });
     row.append(seek);
@@ -276,8 +351,8 @@ function claimItem(claim: Claim, page: Page | undefined): HTMLElement {
   );
   const li = el("li", { className: "claim" }, el("details", { className: "claim-box" }, row, detail));
   li.dataset.verdict = claim.verdict;
-  if (page?.videoId && claim.start !== undefined) {
-    li.dataset.video = page.videoId;
+  if (page && isVideo(page) && claim.start !== undefined) {
+    li.dataset.video = mediaKey(page);
     li.dataset.t = String(claim.start);
   }
   return li;
@@ -307,14 +382,14 @@ async function seekVideo(tabId: number, seconds: number): Promise<void> {
 
 /** Surligne la carte de l'affirmation en train d'être prononcée. */
 async function pollPlayback(): Promise<void> {
-  if (document.hidden || current?.kind !== "youtube" || !current.claims.length) return;
-  const page = current;
+  if (document.hidden || !isVideo(current) || !current!.claims.length) return;
+  const page = current!;
   const [{ result }] = await chrome.scripting.executeScript({
     target: { tabId: page.tabId },
     func: () => (document.querySelector(".ad-showing") ? null : document.querySelector("video")?.currentTime ?? null),
   }).catch(() => [{ result: null }]);
   if (typeof result !== "number") return;
-  const cards = [...document.querySelectorAll<HTMLElement>(`.claim[data-video="${page.videoId}"]`)];
+  const cards = [...document.querySelectorAll<HTMLElement>(".claim[data-video]")].filter((c) => c.dataset.video === mediaKey(page));
   let live: HTMLElement | undefined;
   for (const c of cards) if (Number(c.dataset.t) <= result && result - Number(c.dataset.t) < 30) live = c;
   cards.forEach((c) => c.classList.toggle("live", c === live));
@@ -325,8 +400,8 @@ async function pollPlayback(): Promise<void> {
 async function ask(text: string): Promise<void> {
   text = text.trim();
   if (!text || busy) return;
-  if (text === "Vérifier cette page" && current) {
-    showChips([]);
+  if ((text === "Analyser la page" || text === "Vérifier cette page") && current) {
+    setSuggestions(contextQuestions(current.claims));
     userMessage(text);
     return autoCheck(current);
   }
@@ -334,7 +409,6 @@ async function ask(text: string): Promise<void> {
   $<HTMLButtonElement>("send").disabled = true;
   $<HTMLTextAreaElement>("question").value = "";
   fitInput();
-  showChips([]);
   userMessage(text);
   history.push({ role: "user", content: text });
   const msg = botMessage("…", true);
@@ -374,12 +448,64 @@ function fitInput(): void {
   $<HTMLButtonElement>("send").disabled = busy || !input.value.trim();
 }
 
-function showChips(labels: string[]): void {
-  $("chips").replaceChildren(...labels.map((label) => {
-    const chip = el("button", { className: "chip" }, label);
+// --- Suggestions de questions (elles tournent toutes les quelques secondes) -------
+
+const GENERIC_QUESTIONS = [
+  "Quel est le taux de chômage aujourd'hui ?",
+  "Quelle est l'inflation sur un an ?",
+  "Où en est la dette publique ?",
+  "Le chômage des jeunes a-t-il baissé depuis 2017 ?",
+  "Combien de demandeurs d'emploi en catégorie A ?",
+  "Chômage BIT ou France Travail : quelle différence ?",
+  "Le taux d'emploi est-il à un niveau record ?",
+  "La dette publique dépasse-t-elle 3 500 milliards ?",
+  "Comment vérifies-tu les affirmations ?",
+];
+const CHIPS_SHOWN = 2;
+const CHIPS_ROTATE_MS = 5_000;
+let chipPool: string[] = [];
+let chipPinned: string[] = [];
+let chipIndex = 0;
+
+const shuffle = <T,>(items: T[]) => items.map((v) => [Math.random(), v] as const).sort((a, b) => a[0] - b[0]).map(([, v]) => v);
+
+/** Questions liées à ce qu'on vient de vérifier (affirmations fausses ou trompeuses en tête). */
+function contextQuestions(claims: Claim[]): string[] {
+  const short = (q: string) => (q.length > 48 ? `${q.slice(0, 46).trimEnd()}…` : q);
+  const flagged = claims.filter((c) => c.verdict === "faux" || c.verdict === "trompeur").slice(0, 3);
+  return [
+    ...(claims.length ? ["Résume les verdicts"] : []),
+    ...flagged.map((c) => `Pourquoi « ${short(c.quote)} » est ${c.verdict} ?`),
+    ...(claims.some((c) => c.sources.some((s) => s.official)) ? ["Quelles sources officielles as-tu utilisées ?"] : []),
+  ];
+}
+
+/** `pinned` reste affiché (actions) ; le reste défile, questions du contexte d'abord. */
+function setSuggestions(context: string[], pinned: string[] = []): void {
+  chipPinned = pinned;
+  chipPool = [...context, ...shuffle(GENERIC_QUESTIONS.filter((q) => !context.includes(q)))];
+  chipIndex = 0;
+  renderChips();
+}
+
+function renderChips(): void {
+  const shown = Array.from({ length: Math.min(CHIPS_SHOWN, chipPool.length) }, (_, i) => chipPool[(chipIndex + i) % chipPool.length]);
+  $("chips").replaceChildren(...[...chipPinned, ...shown].map((label, i) => {
+    const chip = el("button", { className: `chip${i < chipPinned.length ? " pinned" : ""}` }, label);
     chip.addEventListener("click", () => void ask(label));
     return chip;
   }));
+}
+
+function rotateChips(): void {
+  const box = $("chips");
+  if (document.hidden || box.matches(":hover") || chipPool.length <= CHIPS_SHOWN) return;
+  box.classList.add("fading");
+  setTimeout(() => {
+    chipIndex = (chipIndex + CHIPS_SHOWN) % chipPool.length;
+    renderChips();
+    box.classList.remove("fading");
+  }, 250);
 }
 
 // --- Messages du fil -------------------------------------------------------------
@@ -483,6 +609,7 @@ async function saveHistory(page: Page, claims: Claim[]): Promise<void> {
 /** Ouvre (ou réactive) l'onglet de la page ; l'analyse revient du cache du serveur, sans nouvel appel à Claude. */
 async function openPage(url: string, seconds?: number): Promise<void> {
   const target = seconds !== undefined && youtubeId(url) ? `https://www.youtube.com/watch?v=${youtubeId(url)}&t=${Math.floor(seconds)}s` : url;
+  // Autres plateformes : pas de paramètre de temps fiable, on rouvre la vidéo au début.
   const [existing] = await chrome.tabs.query({ url: url.split("#")[0] });
   if (existing?.id !== undefined && seconds === undefined) await chrome.tabs.update(existing.id, { active: true });
   else await chrome.tabs.create({ url: target });
@@ -495,7 +622,7 @@ function renderHistory(history: HistoryEntry[]): void {
     const counts = VERDICT_ORDER.map((v) => [v, h.claims.filter((c) => c.verdict === v).length] as const).filter(([, k]) => k);
     const when = new Date(h.at).toLocaleString("fr-FR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
     const open = el("button", { className: "history-item", title: "Rouvrir : les verdicts reviennent sans nouvelle analyse" },
-      el("span", { className: "history-title" }, `${h.kind === "youtube" ? "▶" : "📄"} ${h.title}`),
+      el("span", { className: "history-title" }, `${h.kind === "article" ? "📄" : "▶"} ${h.title}`),
       el("span", { className: "meta" }, [when, h.speaker].filter(Boolean).join(" · ")),
       el("span", { className: "mini-counts" }, ...(counts.length
         ? counts.map(([v, k]) => el("span", { className: "mini", style: `--c:var(--${v})` }, `${k} ${v}`))
@@ -515,7 +642,7 @@ function renderSessionSummary(history: HistoryEntry[], episodes: WatchEpisode[])
   const today = new Date().toDateString();
   const found: { claim: Claim; seen: Seen }[] = [
     ...history.filter((h) => h.session === sessionId).flatMap((h) =>
-      h.claims.filter(bad).map((claim) => ({ claim, seen: { title: h.title, url: h.url, seconds: h.kind === "youtube" ? claim.start : undefined } }))),
+      h.claims.filter(bad).map((claim) => ({ claim, seen: { title: h.title, url: h.url, seconds: h.kind !== "article" ? claim.start : undefined } }))),
     ...episodes.filter((e) => e.claims && new Date(e.publishedAt).toDateString() === today).flatMap((e) =>
       e.claims!.filter(bad).map((claim) => ({ claim, seen: { title: `${e.feedName} – ${e.title}`, url: e.url } }))),
   ];
@@ -676,10 +803,11 @@ async function init(): Promise<void> {
   const hello = botMessage("Bonjour ! Je vérifie les affirmations des responsables politiques à partir des données publiques.");
   hello.body.append(el("ul", { className: "hello" },
     el("li", {}, "Ouvrez une vidéo YouTube : je la vérifie toute seule."),
-    el("li", {}, "Sur un article : « Analyser la page » en haut."),
+    el("li", {}, "Un article de presse, un TikTok, un Reel, une vidéo X : pareil."),
     el("li", {}, "Une phrase précise : sélectionnez-la, puis clic droit."),
     el("li", {}, "Ensuite, posez vos questions ci-dessous.")));
-  showChips(["Quel est le taux de chômage aujourd'hui ?"]);
+  setSuggestions([]);
+  setInterval(rotateChips, CHIPS_ROTATE_MS);
   await initSession();
   await consumePendingSelection();
   await refreshPage();

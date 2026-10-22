@@ -1,13 +1,13 @@
 import { readFileSync } from "node:fs";
 import { serve } from "@hono/node-server";
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
 import type { ChatRequest, CheckRequest, Segment } from "../../shared/contract.ts";
 import { CheckCache } from "./cache.ts";
 import { chat, check } from "./checker.ts";
 import { mergeSegments, transcribeAudio } from "./deepgram.ts";
 import type { Feed } from "./rss.ts";
 import { Watcher } from "./watcher.ts";
-import { downloadYoutubeAudio, YOUTUBE_ID } from "./youtube-audio.ts";
+import { downloadAudio, mediaUrl, YOUTUBE_ID } from "./media-audio.ts";
 
 try {
   process.loadEnvFile(new URL("../.env", import.meta.url));
@@ -69,20 +69,27 @@ app.post("/api/chat", async (c) => {
 });
 
 /**
- * Vidéo YouTube sans sous-titres : yt-dlp télécharge l'audio, Deepgram le transcrit.
- * Une transcription à la fois (crédit Deepgram), résultats gardés en mémoire.
+ * Vidéo sans texte lisible dans la page (YouTube sans sous-titres, TikTok, Instagram, X, Facebook…) :
+ * yt-dlp télécharge l'audio, Deepgram le transcrit. Une transcription à la fois (crédit Deepgram),
+ * résultats gardés en mémoire. `{ videoId }` reste accepté pour YouTube.
  */
 const transcripts = new Map<string, Segment[]>();
 let transcribing: Promise<unknown> = Promise.resolve();
-app.post("/api/transcribe-youtube", async (c) => {
-  const { videoId } = await c.req.json<{ videoId?: string }>();
-  if (!videoId || !YOUTUBE_ID.test(videoId)) return c.json({ error: "Identifiant de vidéo YouTube invalide." }, 400);
+const transcribe = async (c: Context) => {
+  const body = await c.req.json<{ url?: string; videoId?: string }>();
+  let url: string;
+  try {
+    if (body.videoId && !YOUTUBE_ID.test(body.videoId)) throw new Error("Identifiant de vidéo YouTube invalide.");
+    url = mediaUrl(body.videoId ? `https://www.youtube.com/watch?v=${body.videoId}` : body.url ?? "");
+  } catch (err) {
+    return c.json({ error: (err as Error).message }, 400);
+  }
   const key = process.env.DEEPGRAM_API_KEY;
-  if (!key) return c.json({ error: "Cette vidéo n'a pas de sous-titres, et la transcription audio n'est pas activée (DEEPGRAM_API_KEY manquante dans server/.env)." }, 503);
-  const cached = transcripts.get(videoId);
+  if (!key) return c.json({ error: "La transcription audio n'est pas activée (DEEPGRAM_API_KEY manquante dans server/.env)." }, 503);
+  const cached = transcripts.get(url);
   if (cached) return c.json({ segments: cached });
   const job = transcribing.then(async () => {
-    const { audio, contentType } = await downloadYoutubeAudio(videoId);
+    const { audio, contentType } = await downloadAudio(url);
     return mergeSegments(await transcribeAudio(audio, contentType, key, process.env.DEEPGRAM_MODEL || "nova-3"));
   });
   transcribing = job.catch(() => undefined);
@@ -90,12 +97,14 @@ app.post("/api/transcribe-youtube", async (c) => {
     const segments = await job;
     if (!segments.length) return c.json({ error: "Deepgram n'a reconnu aucune parole dans cette vidéo." }, 422);
     if (transcripts.size >= 50) transcripts.delete(transcripts.keys().next().value!);
-    transcripts.set(videoId, segments);
+    transcripts.set(url, segments);
     return c.json({ segments });
   } catch (err) {
     return c.json({ error: (err as Error).message }, 502);
   }
-});
+};
+app.post("/api/transcribe", transcribe);
+app.post("/api/transcribe-youtube", transcribe);
 
 app.get("/api/watch", (c) => c.json(watcher.snapshot()));
 

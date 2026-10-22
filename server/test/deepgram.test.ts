@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { guestSegments, mergeSegments, utterancesToSegments } from "../src/deepgram.ts";
-import { downloadYoutubeAudio, YOUTUBE_ID } from "../src/youtube-audio.ts";
+import { downloadAudio, mediaUrl, YOUTUBE_ID } from "../src/media-audio.ts";
 
 test("les phrases Deepgram deviennent des segments horodatés avec l'intervenant", () => {
   const segments = utterancesToSegments({
@@ -49,8 +49,12 @@ test("les phrases d'un même intervenant sont regroupées en blocs, et la longue
   assert.equal(segments[0].text.length, 100); // pas de mutation de l'entrée
 });
 
-test("seuls les identifiants YouTube valides sont passés à yt-dlp", async () => {
+test("seules les adresses web publiques sont passées à yt-dlp", async () => {
   assert.ok(YOUTUBE_ID.test("J43DDa090TI"));
   assert.ok(!YOUTUBE_ID.test("--exec=rm -rf"));
-  await assert.rejects(downloadYoutubeAudio("abc; ls"), /invalide/);
+  assert.equal(mediaUrl("https://www.tiktok.com/@a/video/123#x"), "https://www.tiktok.com/@a/video/123");
+  for (const bad of ["file:///etc/passwd", "http://localhost:8000/check", "http://192.168.1.1/", "http://[::1]/", "--exec=ls", "http://nas.local/v"]) {
+    assert.throws(() => mediaUrl(bad), /invalide|non autorisée/, bad);
+  }
+  await assert.rejects(downloadAudio("http://127.0.0.1/x"), /non autorisée/);
 });

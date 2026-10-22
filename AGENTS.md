@@ -32,7 +32,7 @@ server/                  ← serveur Node/Hono, port 8790 (Sébastien)
   src/checker.ts         ← appel du moteur (CHECKER_URL) + faux moteur de démo
   src/watcher.ts, rss.ts ← veille RSS (feeds.json), état dans server/data/state.json
   src/deepgram.ts        ← transcription Deepgram : podcasts (garde l'invité) et vidéos YouTube sans sous-titres
-  src/youtube-audio.ts   ← télécharge l'audio d'une vidéo YouTube avec yt-dlp (repli sans sous-titres)
+  src/media-audio.ts     ← télécharge l'audio d'une vidéo (YouTube sans sous-titres, TikTok, Reels, X…) avec yt-dlp + ffmpeg
   test/                  ← tests (npm test)
 
 backend/                 ← MOTEUR D'ANALYSE Python / FastAPI, port 8000
@@ -121,6 +121,7 @@ python scripts/fetch_insee.py
 - [x] Outils INSEE en direct pour Claude (`insee_api.py`) : vérification web et chat lisent les séries officielles hors référentiel (inflation, dette, PIB…) — Lots A/C
 - [x] Vidéos YouTube sans sous-titres : le serveur Node télécharge l'audio (yt-dlp) et le fait transcrire par Deepgram (`/api/transcribe-youtube`) — Lot A
 - [x] Panneau façon ChatGPT : verdicts en liste dépliable, filtres par verdict, onglet Veille avec résumé faux/trompeur de la session (dédoublonné) et historique des pages analysées (`chrome.storage.local`) — Lot A
+- [x] Analyse automatique des articles de presse (og:type / JSON-LD NewsArticle) et des vidéos de toutes plateformes (TikTok, Instagram, X, Facebook, Dailymotion, Vimeo, Twitch, france.tv…) via `/api/transcribe` ; suggestions de questions qui tournent — Lot A
 - [ ] Google Fact Check Tools en première étape de vérification — Lot C
 - [ ] Itérer les prompts sur 2-3 vraies vidéos — Lots B/C
 - [ ] Choisir et mettre en cache les vidéos de démo — Lot E
@@ -137,7 +138,7 @@ Quand tu termines une tâche, **coche-la ici** dans ton commit.
 ## 8. Pièges connus
 
 - **Verdicts : 4 côté contrat, 6 côté Python.** Le mapping est dans `check_api.py` : plutôt vrai → `vrai`, imprécis → `trompeur`. La nuance est préfixée dans l'explication, suivie de « Correction : … ». Le contrat écrit **`invérifiable` avec accent** ; le Python interne écrit `inverifiable` sans accent.
-- **YouTube transcript** : le serveur (Python ou Node) est souvent bloqué par YouTube. La voie normale, c'est l'extension qui lit la transcription dans la page (`extension/src/extract.ts`). `backend/app/transcript.py` ne sert qu'à `/analyze` en local. **Sans sous-titres**, l'extension appelle `/api/transcribe-youtube` : le serveur Node télécharge l'audio avec **yt-dlp** (`brew install yt-dlp`, marche depuis un Mac, pas depuis un serveur hébergé) et l'envoie en fichier à Deepgram. Le lien audio de YouTube ne peut pas être passé à Deepgram : il n'est valable que pour l'IP qui l'a demandé.
+- **YouTube transcript** : le serveur (Python ou Node) est souvent bloqué par YouTube. La voie normale, c'est l'extension qui lit la transcription dans la page (`extension/src/extract.ts`). `backend/app/transcript.py` ne sert qu'à `/analyze` en local. **Sans sous-titres**, et pour les vidéos des autres plateformes, l'extension appelle `/api/transcribe` : le serveur Node télécharge l'audio avec **yt-dlp + ffmpeg** (`brew install yt-dlp ffmpeg`, marche depuis un Mac, pas depuis un serveur hébergé) et l'envoie en fichier à Deepgram. Le lien audio ne peut pas être passé à Deepgram : il n'est valable que pour l'IP qui l'a demandé. Instagram et Facebook exigent souvent un compte : `YTDLP_COOKIES_FROM_BROWSER=chrome` (opt-in, machine perso). Les longues vidéos sans piste audio séparée (Dailymotion) sont lentes.
 - **Sous-titres auto** : pas de ponctuation, et des chiffres parfois écrits en lettres (« sept virgule cinq pour cent »). C'est le prompt d'extraction qui normalise.
 - **API INSEE en direct** (`insee_api.py`) : 30 appels/min (espacés automatiquement, cache 6 h). Les très gros thèmes (indices de prix) renvoient HTTP 413 : passer par les idbanks de `FREQUENT`. Le référentiel figé reste prioritaire, car son verdict est calculé en code ; avec l'outil en direct, c'est Claude qui compare (méthode `web`, confiance plafonnée à 0,7).
 - **Chômage : BIT ≠ France Travail.** Le « taux de chômage » (INSEE, BIT) n'est pas le « nombre de demandeurs d'emploi » (France Travail, cat. A/B/C). Une confusion entre les deux donne `imprecis`, pas `faux`.
