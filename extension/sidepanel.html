@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>FactCheck Politique</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+  <header>
+    <h1>FactCheck Politique</h1>
+    <nav>
+      <button class="tab active" data-tab="analyse">Analyse</button>
+      <button class="tab" data-tab="profils">Profils</button>
+    </nav>
+  </header>
+
+  <section id="tab-analyse">
+    <div id="video" class="muted">Ouvrez une vidéo YouTube…</div>
+    <form id="form">
+      <label>Orateur·rice <input id="speaker" required placeholder="Prénom Nom"></label>
+      <label>Parti <input id="party" placeholder="optionnel"></label>
+      <label>Date du discours <input id="date" type="date"></label>
+      <label class="check"><input id="useDom" type="checkbox"> Utiliser la transcription affichée sur la page YouTube</label>
+      <details>
+        <summary>Coller un transcript à la main (plan B)</summary>
+        <textarea id="manual" rows="5" placeholder="Texte du discours…"></textarea>
+      </details>
+      <label class="check"><input id="force" type="checkbox"> Ré-analyser (ignorer le cache)</label>
+      <button id="go" type="submit">Analyser la vidéo</button>
+    </form>
+    <div id="status" class="muted"></div>
+    <div id="stats"></div>
+    <ol id="results"></ol>
+  </section>
+
+  <section id="tab-profils" hidden>
+    <p class="muted">Score = moyenne pondérée des verdicts (vrai 100, plutôt vrai 75, imprécis 50, trompeur 25, faux 0), affiché à partir de 5 affirmations vérifiées. Il porte sur des affirmations, pas sur des personnes.</p>
+    <ol id="profiles"></ol>
+  </section>
+
+  <script src="config.js"></script>
+  <script src="sidepanel.js"></script>
+</body>
+</html>

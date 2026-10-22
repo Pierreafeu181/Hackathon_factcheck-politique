@@ -1,0 +1,20 @@
+{
+  "_doc": "Configuration des séries du référentiel. Lue par scripts/fetch_insee.py qui génère <fichier>.json. Ids vérifiés sur l'API BDM INSEE le 2026-10-22. Volumes convertis en milliers.",
+  "emploi": {
+    "taux_chomage_bit": {"idbank": "001688527", "label": "Taux de chômage au sens du BIT (ensemble)", "unit": "pourcent", "note": "INSEE, Enquête Emploi, France hors Mayotte, CVS, trimestriel"},
+    "taux_chomage_bit_fe": {"idbank": "011818543", "label": "Taux de chômage au sens du BIT (ensemble), France entière", "unit": "pourcent", "note": "INSEE, Enquête Emploi, France entière (nouvelle base), CVS, trimestriel"},
+    "taux_chomage_moins_25": {"idbank": "001688537", "label": "Taux de chômage BIT des moins de 25 ans (« chômage des jeunes »)", "unit": "pourcent", "note": "INSEE, France hors Mayotte, CVS, trimestriel"},
+    "taux_chomage_50_plus": {"idbank": "001688531", "label": "Taux de chômage BIT des 50 ans ou plus (« chômage des seniors »)", "unit": "pourcent", "note": "INSEE, France hors Mayotte, CVS, trimestriel"},
+    "taux_chomage_longue_duree": {"idbank": "011818581", "label": "Taux de chômage de longue durée (1 an ou plus)", "unit": "pourcent", "note": "INSEE, France entière, CVS, trimestriel"},
+    "nb_chomeurs_bit": {"idbank": "011818555", "label": "Nombre de chômeurs au sens du BIT (milliers)", "unit": "milliers", "note": "INSEE, France entière, CVS, trimestriel"},
+    "halo_chomage": {"idbank": "011818564", "label": "Personnes dans le halo autour du chômage (milliers)", "unit": "milliers", "note": "INSEE, France entière, CVS, trimestriel"},
+    "taux_emploi_15_64": {"idbank": "011818676", "label": "Taux d'emploi des 15-64 ans", "unit": "pourcent", "note": "INSEE, France entière, CVS, trimestriel"},
+    "taux_emploi_15_24": {"idbank": "011818685", "label": "Taux d'emploi des 15-24 ans", "unit": "pourcent", "note": "INSEE, France entière, CVS, trimestriel"},
+    "taux_activite_15_64": {"idbank": "011818737", "label": "Taux d'activité des 15-64 ans", "unit": "pourcent", "note": "INSEE, France entière, CVS, trimestriel"},
+    "emploi_salarie_total": {"idbank": "001796852", "label": "Emploi salarié total (milliers)", "unit": "milliers", "note": "INSEE, Estimations d'emploi, France hors Mayotte, CVS, trimestriel"},
+    "emploi_salarie_prive": {"idbank": "001796854", "label": "Emploi salarié privé (milliers)", "unit": "milliers", "note": "INSEE, Estimations d'emploi, France hors Mayotte, CVS, trimestriel"},
+    "emploi_salarie_public": {"idbank": "001796853", "label": "Emploi salarié public (milliers)", "unit": "milliers", "note": "INSEE, Estimations d'emploi, France hors Mayotte, CVS, trimestriel"},
+    "demandeurs_emploi_cat_a": {"idbank": "010597456", "label": "Demandeurs d'emploi inscrits à France Travail, catégorie A (milliers)", "unit": "milliers", "publisher": "DARES / France Travail (via INSEE)", "note": "France hors Mayotte, CVS-CJO, trimestriel. Ce n'est PAS le chômage BIT."},
+    "demandeurs_emploi_cat_abc": {"idbank": "010597571", "label": "Demandeurs d'emploi inscrits à France Travail, catégories A, B, C (milliers)", "unit": "milliers", "publisher": "DARES / France Travail (via INSEE)", "note": "France hors Mayotte, CVS-CJO, trimestriel. Ce n'est PAS le chômage BIT."}
+  }
+}

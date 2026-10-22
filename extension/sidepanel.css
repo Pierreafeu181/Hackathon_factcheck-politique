@@ -1,0 +1,31 @@
+:root {
+  --bg: #fafaf8; --fg: #1d1d1f; --muted: #6b6b70; --line: #e3e3e0; --card: #fff;
+  --vrai: #1f8a4c; --plutot_vrai: #6aa84f; --imprecis: #d6a400; --trompeur: #e07b00; --faux: #c62828; --inverifiable: #8a8a8a;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #161618; --fg: #ececec; --muted: #9a9aa0; --line: #2c2c30; --card: #1f1f22; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; padding: 12px; font: 14px/1.45 system-ui, sans-serif; background: var(--bg); color: var(--fg); }
+h1 { font-size: 16px; margin: 0 0 8px; }
+nav { display: flex; gap: 4px; margin-bottom: 12px; }
+.tab { flex: 1; padding: 6px; border: 1px solid var(--line); background: var(--card); color: var(--fg); border-radius: 6px; cursor: pointer; }
+.tab.active { border-color: var(--fg); font-weight: 600; }
+.muted { color: var(--muted); font-size: 12px; }
+form { display: grid; gap: 8px; margin: 10px 0; }
+label { display: grid; gap: 2px; font-size: 12px; color: var(--muted); }
+label.check { display: flex; gap: 6px; align-items: center; }
+input, textarea { font: inherit; padding: 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: var(--fg); }
+#go { padding: 8px; border: 0; border-radius: 6px; background: var(--fg); color: var(--bg); font-weight: 600; cursor: pointer; }
+#go:disabled { opacity: .5; cursor: wait; }
+#stats { display: flex; flex-wrap: wrap; gap: 4px; margin: 8px 0; }
+ol { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+.card { background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--c); border-radius: 8px; padding: 10px; }
+.badge { display: inline-block; padding: 1px 8px; border-radius: 999px; background: var(--c); color: #fff; font-size: 11px; font-weight: 600; text-transform: uppercase; }
+.ts { float: right; font-size: 12px; color: var(--muted); cursor: pointer; text-decoration: underline; }
+.quote { font-style: italic; margin: 6px 0; }
+.correction { margin: 6px 0; padding: 6px; border-radius: 6px; background: color-mix(in srgb, var(--vrai) 12%, transparent); }
+.sources { font-size: 12px; margin: 6px 0 0; padding-left: 16px; list-style: disc; display: block; }
+.sources a { color: inherit; }
+.meta { font-size: 11px; color: var(--muted); margin-top: 4px; }
+.score { font-size: 22px; font-weight: 700; }

@@ -1,0 +1,997 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FactCheck Politique — contrat de données",
+  "description": "Généré depuis backend/app/models.py. Ne pas éditer à la main.",
+  "definitions": {
+    "ExtractedClaim": {
+      "$defs": {
+        "Category": {
+          "enum": [
+            "emploi",
+            "economie",
+            "finances_publiques",
+            "immigration",
+            "securite",
+            "sante",
+            "education",
+            "energie_climat",
+            "autre"
+          ],
+          "title": "Category",
+          "type": "string"
+        },
+        "ClaimType": {
+          "enum": [
+            "niveau",
+            "evolution",
+            "record",
+            "comparaison",
+            "autre"
+          ],
+          "title": "ClaimType",
+          "type": "string"
+        },
+        "Unit": {
+          "enum": [
+            "pourcent",
+            "points",
+            "pourcent_variation",
+            "milliers",
+            "personnes",
+            "euros",
+            "annees",
+            "autre"
+          ],
+          "title": "Unit",
+          "type": "string"
+        }
+      },
+      "description": "Une affirmation telle qu'extraite du transcript par le LLM.",
+      "properties": {
+        "quote": {
+          "description": "Citation exacte (ou quasi exacte) tirée du transcript",
+          "title": "Quote",
+          "type": "string"
+        },
+        "claim": {
+          "description": "Reformulation neutre, autonome et vérifiable de l'affirmation",
+          "title": "Claim",
+          "type": "string"
+        },
+        "timestamp_start": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Début en secondes dans la vidéo, si connu",
+          "title": "Timestamp Start"
+        },
+        "category": {
+          "$ref": "#/$defs/Category"
+        },
+        "checkable": {
+          "description": "True si l'affirmation est factuelle et vérifiable (pas une opinion ni une promesse)",
+          "title": "Checkable",
+          "type": "boolean"
+        },
+        "claim_type": {
+          "$ref": "#/$defs/ClaimType"
+        },
+        "indicator": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Clé d'indicateur du référentiel (ex: taux_chomage_bit) ou null",
+          "title": "Indicator"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Valeur chiffrée affirmée, normalisée (7,5 % → 7.5)",
+          "title": "Value"
+        },
+        "unit": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Unit"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "direction": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "'hausse' | 'baisse' | null, pour les évolutions et records",
+          "title": "Direction"
+        },
+        "period_start": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Début de période, format AAAA ou AAAA-Tn, ou null",
+          "title": "Period Start"
+        },
+        "period_end": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Fin de période, format AAAA ou AAAA-Tn, ou null (= aujourd'hui)",
+          "title": "Period End"
+        },
+        "geo": {
+          "description": "Périmètre géographique, 'France' par défaut",
+          "title": "Geo",
+          "type": "string"
+        }
+      },
+      "required": [
+        "quote",
+        "claim",
+        "timestamp_start",
+        "category",
+        "checkable",
+        "claim_type",
+        "indicator",
+        "value",
+        "unit",
+        "direction",
+        "period_start",
+        "period_end",
+        "geo"
+      ],
+      "title": "ExtractedClaim",
+      "type": "object"
+    },
+    "Verification": {
+      "$defs": {
+        "Method": {
+          "enum": [
+            "referentiel",
+            "web",
+            "aucun"
+          ],
+          "title": "Method",
+          "type": "string"
+        },
+        "Source": {
+          "properties": {
+            "title": {
+              "title": "Title",
+              "type": "string"
+            },
+            "url": {
+              "title": "Url",
+              "type": "string"
+            },
+            "publisher": {
+              "description": "INSEE, DARES, France Travail, Eurostat, média…",
+              "title": "Publisher",
+              "type": "string"
+            },
+            "note": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Précision : CVS, France hors Mayotte, période…",
+              "title": "Note"
+            }
+          },
+          "required": [
+            "title",
+            "url",
+            "publisher"
+          ],
+          "title": "Source",
+          "type": "object"
+        },
+        "Verdict": {
+          "enum": [
+            "vrai",
+            "plutot_vrai",
+            "imprecis",
+            "trompeur",
+            "faux",
+            "inverifiable"
+          ],
+          "title": "Verdict",
+          "type": "string"
+        }
+      },
+      "properties": {
+        "verdict": {
+          "$ref": "#/$defs/Verdict"
+        },
+        "method": {
+          "$ref": "#/$defs/Method"
+        },
+        "official_value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Official Value"
+        },
+        "official_period": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Official Period"
+        },
+        "correction": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Formulation corrigée de l'affirmation, si besoin",
+          "title": "Correction"
+        },
+        "explanation": {
+          "description": "2-4 phrases neutres, sourcées",
+          "title": "Explanation",
+          "type": "string"
+        },
+        "sources": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/Source"
+          },
+          "title": "Sources",
+          "type": "array"
+        },
+        "confidence": {
+          "description": "0 à 1",
+          "title": "Confidence",
+          "type": "number"
+        }
+      },
+      "required": [
+        "verdict",
+        "method",
+        "explanation",
+        "confidence"
+      ],
+      "title": "Verification",
+      "type": "object"
+    },
+    "AnalyzeRequest": {
+      "$defs": {
+        "Category": {
+          "enum": [
+            "emploi",
+            "economie",
+            "finances_publiques",
+            "immigration",
+            "securite",
+            "sante",
+            "education",
+            "energie_climat",
+            "autre"
+          ],
+          "title": "Category",
+          "type": "string"
+        },
+        "Speaker": {
+          "properties": {
+            "name": {
+              "title": "Name",
+              "type": "string"
+            },
+            "party": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Party"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "title": "Speaker",
+          "type": "object"
+        },
+        "TranscriptSegment": {
+          "properties": {
+            "start": {
+              "title": "Start",
+              "type": "number"
+            },
+            "duration": {
+              "default": 0.0,
+              "title": "Duration",
+              "type": "number"
+            },
+            "text": {
+              "title": "Text",
+              "type": "string"
+            }
+          },
+          "required": [
+            "start",
+            "text"
+          ],
+          "title": "TranscriptSegment",
+          "type": "object"
+        }
+      },
+      "description": "Au moins un de video_id / url / transcript doit être fourni.",
+      "properties": {
+        "video_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Video Id"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Url"
+        },
+        "transcript": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/TranscriptSegment"
+              },
+              "type": "array"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Transcript"
+        },
+        "speaker": {
+          "$ref": "#/$defs/Speaker"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Title"
+        },
+        "date": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Date du discours AAAA-MM-JJ",
+          "title": "Date"
+        },
+        "categories": {
+          "default": [
+            "emploi"
+          ],
+          "items": {
+            "$ref": "#/$defs/Category"
+          },
+          "title": "Categories",
+          "type": "array"
+        },
+        "use_web": {
+          "default": true,
+          "title": "Use Web",
+          "type": "boolean"
+        },
+        "force": {
+          "default": false,
+          "description": "Ré-analyser même si déjà en base",
+          "title": "Force",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "speaker"
+      ],
+      "title": "AnalyzeRequest",
+      "type": "object"
+    },
+    "AnalyzeResponse": {
+      "$defs": {
+        "Category": {
+          "enum": [
+            "emploi",
+            "economie",
+            "finances_publiques",
+            "immigration",
+            "securite",
+            "sante",
+            "education",
+            "energie_climat",
+            "autre"
+          ],
+          "title": "Category",
+          "type": "string"
+        },
+        "ClaimResult": {
+          "properties": {
+            "id": {
+              "title": "Id",
+              "type": "string"
+            },
+            "speech_id": {
+              "title": "Speech Id",
+              "type": "string"
+            },
+            "claim": {
+              "$ref": "#/$defs/ExtractedClaim"
+            },
+            "verification": {
+              "$ref": "#/$defs/Verification"
+            }
+          },
+          "required": [
+            "id",
+            "speech_id",
+            "claim",
+            "verification"
+          ],
+          "title": "ClaimResult",
+          "type": "object"
+        },
+        "ClaimType": {
+          "enum": [
+            "niveau",
+            "evolution",
+            "record",
+            "comparaison",
+            "autre"
+          ],
+          "title": "ClaimType",
+          "type": "string"
+        },
+        "ExtractedClaim": {
+          "description": "Une affirmation telle qu'extraite du transcript par le LLM.",
+          "properties": {
+            "quote": {
+              "description": "Citation exacte (ou quasi exacte) tirée du transcript",
+              "title": "Quote",
+              "type": "string"
+            },
+            "claim": {
+              "description": "Reformulation neutre, autonome et vérifiable de l'affirmation",
+              "title": "Claim",
+              "type": "string"
+            },
+            "timestamp_start": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Début en secondes dans la vidéo, si connu",
+              "title": "Timestamp Start"
+            },
+            "category": {
+              "$ref": "#/$defs/Category"
+            },
+            "checkable": {
+              "description": "True si l'affirmation est factuelle et vérifiable (pas une opinion ni une promesse)",
+              "title": "Checkable",
+              "type": "boolean"
+            },
+            "claim_type": {
+              "$ref": "#/$defs/ClaimType"
+            },
+            "indicator": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Clé d'indicateur du référentiel (ex: taux_chomage_bit) ou null",
+              "title": "Indicator"
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Valeur chiffrée affirmée, normalisée (7,5 % → 7.5)",
+              "title": "Value"
+            },
+            "unit": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Unit"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "direction": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "'hausse' | 'baisse' | null, pour les évolutions et records",
+              "title": "Direction"
+            },
+            "period_start": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Début de période, format AAAA ou AAAA-Tn, ou null",
+              "title": "Period Start"
+            },
+            "period_end": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Fin de période, format AAAA ou AAAA-Tn, ou null (= aujourd'hui)",
+              "title": "Period End"
+            },
+            "geo": {
+              "description": "Périmètre géographique, 'France' par défaut",
+              "title": "Geo",
+              "type": "string"
+            }
+          },
+          "required": [
+            "quote",
+            "claim",
+            "timestamp_start",
+            "category",
+            "checkable",
+            "claim_type",
+            "indicator",
+            "value",
+            "unit",
+            "direction",
+            "period_start",
+            "period_end",
+            "geo"
+          ],
+          "title": "ExtractedClaim",
+          "type": "object"
+        },
+        "Method": {
+          "enum": [
+            "referentiel",
+            "web",
+            "aucun"
+          ],
+          "title": "Method",
+          "type": "string"
+        },
+        "Source": {
+          "properties": {
+            "title": {
+              "title": "Title",
+              "type": "string"
+            },
+            "url": {
+              "title": "Url",
+              "type": "string"
+            },
+            "publisher": {
+              "description": "INSEE, DARES, France Travail, Eurostat, média…",
+              "title": "Publisher",
+              "type": "string"
+            },
+            "note": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Précision : CVS, France hors Mayotte, période…",
+              "title": "Note"
+            }
+          },
+          "required": [
+            "title",
+            "url",
+            "publisher"
+          ],
+          "title": "Source",
+          "type": "object"
+        },
+        "Speaker": {
+          "properties": {
+            "name": {
+              "title": "Name",
+              "type": "string"
+            },
+            "party": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Party"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "title": "Speaker",
+          "type": "object"
+        },
+        "Speech": {
+          "properties": {
+            "id": {
+              "title": "Id",
+              "type": "string"
+            },
+            "video_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Video Id"
+            },
+            "url": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Url"
+            },
+            "title": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Title"
+            },
+            "date": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date"
+            },
+            "speaker": {
+              "$ref": "#/$defs/Speaker"
+            }
+          },
+          "required": [
+            "id",
+            "video_id",
+            "url",
+            "title",
+            "date",
+            "speaker"
+          ],
+          "title": "Speech",
+          "type": "object"
+        },
+        "Unit": {
+          "enum": [
+            "pourcent",
+            "points",
+            "pourcent_variation",
+            "milliers",
+            "personnes",
+            "euros",
+            "annees",
+            "autre"
+          ],
+          "title": "Unit",
+          "type": "string"
+        },
+        "Verdict": {
+          "enum": [
+            "vrai",
+            "plutot_vrai",
+            "imprecis",
+            "trompeur",
+            "faux",
+            "inverifiable"
+          ],
+          "title": "Verdict",
+          "type": "string"
+        },
+        "Verification": {
+          "properties": {
+            "verdict": {
+              "$ref": "#/$defs/Verdict"
+            },
+            "method": {
+              "$ref": "#/$defs/Method"
+            },
+            "official_value": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Official Value"
+            },
+            "official_period": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Official Period"
+            },
+            "correction": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Formulation corrigée de l'affirmation, si besoin",
+              "title": "Correction"
+            },
+            "explanation": {
+              "description": "2-4 phrases neutres, sourcées",
+              "title": "Explanation",
+              "type": "string"
+            },
+            "sources": {
+              "default": [],
+              "items": {
+                "$ref": "#/$defs/Source"
+              },
+              "title": "Sources",
+              "type": "array"
+            },
+            "confidence": {
+              "description": "0 à 1",
+              "title": "Confidence",
+              "type": "number"
+            }
+          },
+          "required": [
+            "verdict",
+            "method",
+            "explanation",
+            "confidence"
+          ],
+          "title": "Verification",
+          "type": "object"
+        }
+      },
+      "properties": {
+        "speech": {
+          "$ref": "#/$defs/Speech"
+        },
+        "results": {
+          "items": {
+            "$ref": "#/$defs/ClaimResult"
+          },
+          "title": "Results",
+          "type": "array"
+        },
+        "stats": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Stats",
+          "type": "object"
+        }
+      },
+      "required": [
+        "speech",
+        "results",
+        "stats"
+      ],
+      "title": "AnalyzeResponse",
+      "type": "object"
+    },
+    "PoliticianProfile": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "party": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Party"
+        },
+        "n_speeches": {
+          "title": "N Speeches",
+          "type": "integer"
+        },
+        "n_claims": {
+          "title": "N Claims",
+          "type": "integer"
+        },
+        "verdicts": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Verdicts",
+          "type": "object"
+        },
+        "reliability_score": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "0-100, null si < 5 affirmations vérifiées",
+          "title": "Reliability Score"
+        },
+        "by_category": {
+          "additionalProperties": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object"
+          },
+          "title": "By Category",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "party",
+        "n_speeches",
+        "n_claims",
+        "verdicts",
+        "reliability_score",
+        "by_category"
+      ],
+      "title": "PoliticianProfile",
+      "type": "object"
+    }
+  }
+}

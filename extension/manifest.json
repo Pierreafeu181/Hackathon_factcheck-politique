@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "FactCheck Politique",
+  "version": "0.1.0",
+  "description": "Vérifie les affirmations chiffrées des discours politiques sur YouTube à partir des données publiques (INSEE, DARES, data.gouv).",
+  "permissions": ["sidePanel", "tabs", "storage"],
+  "host_permissions": ["https://www.youtube.com/*", "http://localhost:8000/*"],
+  "background": { "service_worker": "background.js" },
+  "side_panel": { "default_path": "sidepanel.html" },
+  "action": { "default_title": "FactCheck Politique" },
+  "content_scripts": [
+    {
+      "matches": ["https://www.youtube.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

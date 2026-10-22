@@ -1,0 +1,17 @@
+{
+  "speaker": {"name": "Intervenant Démo (fictif)", "party": null},
+  "title": "Transcript SYNTHÉTIQUE pour tester le pipeline — aucune personne réelle",
+  "date": "2026-10-15",
+  "use_web": true,
+  "force": true,
+  "transcript": [
+    {"start": 0, "duration": 8, "text": "bonsoir merci de m'accueillir alors parlons d'emploi"},
+    {"start": 8, "duration": 12, "text": "aujourd'hui le taux de chômage il est à huit virgule trois pour cent c'est le chiffre de l'insee"},
+    {"start": 22, "duration": 12, "text": "et depuis 2017 le chômage a baissé de plus de trois points c'est un résultat historique"},
+    {"start": 36, "duration": 10, "text": "le chômage n'a jamais été aussi bas depuis quarante ans"},
+    {"start": 48, "duration": 12, "text": "on a aujourd'hui moins de deux millions de demandeurs d'emploi en catégorie A"},
+    {"start": 62, "duration": 10, "text": "le chômage des jeunes il est passé sous les quinze pour cent"},
+    {"start": 74, "duration": 12, "text": "et l'apprentissage on a dépassé les huit cent mille contrats signés en une année c'est du jamais vu"},
+    {"start": 88, "duration": 10, "text": "nous on veut aller vers le plein emploi d'ici la fin du quinquennat"}
+  ]
+}
