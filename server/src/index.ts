@@ -26,6 +26,14 @@ const watcher = new Watcher({
 
 const app = new Hono();
 // Pas de CORS : l'extension a les droits d'accès au serveur, les sites web non.
+// Exiger du JSON force une requête de vérification préalable (CORS) qu'un site web ne peut pas passer :
+// sans ça, une page pourrait poster du texte brut vers localhost et empoisonner le cache.
+app.use("/api/*", async (c, next) => {
+  if (c.req.method === "POST" && !c.req.header("content-type")?.startsWith("application/json")) {
+    return c.json({ error: "Content-Type application/json requis." }, 415);
+  }
+  await next();
+});
 
 app.get("/api/health", (c) => c.json({ ok: true, checker: process.env.CHECKER_URL ? "équipe" : "démo" }));
 
