@@ -7,7 +7,13 @@
   </head>
   <body>
     <header>
-      <h1>Vérif'Pol</h1>
+      <div class="head-row">
+        <h1>Vérif'Pol</h1>
+        <div class="head-actions">
+          <button id="analyze" class="pill" title="Relancer l'analyse de la page ouverte, sans passer par le cache">Analyser la vidéo</button>
+          <button id="reload" class="icon" title="Recharger l'extension (après npm run build:ext)">↻</button>
+        </div>
+      </div>
       <nav>
         <button class="tab active" data-tab="chat">Chat</button>
         <button class="tab" data-tab="watch">Veille</button>

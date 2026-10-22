@@ -29,6 +29,7 @@ let current: Page | undefined;
 let detecting: string | undefined; // page en cours de détection (plusieurs événements Chrome par navigation)
 let history: ChatRequest["messages"] = [];
 let busy = false;
+let analyzing = 0; // analyses en cours (le bouton « Analyser » est désactivé pendant ce temps)
 
 // --- Appels au serveur ---------------------------------------------------------
 
@@ -101,6 +102,7 @@ async function speakerFor(title: string, channel?: string): Promise<string | und
 function renderContext(): void {
   if (!current) return;
   const page = current;
+  $("analyze").textContent = page.kind === "youtube" ? "Analyser la vidéo" : "Analyser la page";
   const parts: (Node | string)[] = [el("span", { className: "ctx-title" }, `${page.kind === "youtube" ? "▶" : "📄"} ${page.title}`)];
   if (page.kind === "youtube") {
     const edit = el("button", { className: "link", title: "Corriger l'orateur·rice" }, `Orateur·rice : ${page.speaker ?? "inconnu·e, cliquez pour l'indiquer"} ✎`);
@@ -121,8 +123,9 @@ async function editSpeaker(page: Page): Promise<void> {
 
 // --- Vérification ----------------------------------------------------------------
 
-async function autoCheck(page: Page, force = false): Promise<void> {
-  const msg = botMessage(force ? `Je revérifie avec ${page.speaker} comme orateur·rice…` : "Je lis la page…", true);
+async function autoCheck(page: Page, force = false, intro?: string): Promise<void> {
+  const msg = botMessage(intro ?? (force ? `Je revérifie avec ${page.speaker} comme orateur·rice…` : "Je lis la page…"), true);
+  setAnalyzing(+1);
   try {
     await chrome.scripting.executeScript({ target: { tabId: page.tabId }, files: ["extract.js"] });
     const [{ result }] = await chrome.scripting.executeScript({
@@ -144,7 +147,26 @@ async function autoCheck(page: Page, force = false): Promise<void> {
   } catch (err) {
     msg.setText(explain(err));
     msg.done();
+  } finally {
+    setAnalyzing(-1);
   }
+}
+
+function setAnalyzing(delta: number): void {
+  analyzing += delta;
+  $<HTMLButtonElement>("analyze").disabled = analyzing > 0;
+}
+
+/** Bouton « Analyser » : relance l'analyse de la page ouverte en ignorant le cache du serveur. */
+async function analyzeNow(): Promise<void> {
+  if (!current) await refreshPage();
+  if (!current) {
+    botMessage("Ouvrez une vidéo YouTube ou un article, puis cliquez sur « Analyser ».");
+    return;
+  }
+  showTab("chat");
+  showChips([]);
+  await autoCheck(current, true, current.kind === "youtube" ? "Je relance l'analyse de la vidéo…" : "J'analyse la page…");
 }
 
 async function checkSelection(text: string, url: string, title: string): Promise<void> {
@@ -448,6 +470,9 @@ async function init(): Promise<void> {
   $("question").addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void ask($<HTMLTextAreaElement>("question").value); }
   });
+
+  $("analyze").addEventListener("click", () => void analyzeNow());
+  $("reload").addEventListener("click", () => chrome.runtime.reload());
 
   $("refresh").addEventListener("click", async () => {
     try {
