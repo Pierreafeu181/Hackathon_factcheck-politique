@@ -23,27 +23,46 @@
     <section id="tab-chat">
       <div id="ctx" class="ctx">Ouvrez une vidéo YouTube : elle sera vérifiée automatiquement.</div>
       <div id="thread" aria-live="polite"></div>
-      <div id="chips"></div>
+      <div id="chips" class="chips"></div>
       <form id="ask">
-        <textarea id="question" rows="1" placeholder="Pose ta question…"></textarea>
-        <button id="send" type="submit" title="Envoyer">↑</button>
+        <textarea id="question" rows="1" placeholder="Posez une question sur cette vidéo…"></textarea>
+        <button id="send" type="submit" title="Envoyer" aria-label="Envoyer">
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
       </form>
     </section>
 
     <section id="tab-watch" hidden>
-      <div class="row">
-        <button id="refresh">Relancer la veille</button>
-        <span id="watch-meta" class="meta"></span>
+      <div class="section-head">
+        <h2>Faux et trompeur</h2>
+        <span id="summary-meta" class="meta"></span>
       </div>
+      <p id="summary-empty" class="empty">Rien de faux ni de trompeur pour l'instant dans les pages vues et les podcasts du jour.</p>
+      <ol id="session-summary" class="claims"></ol>
+
+      <div class="section-head">
+        <h2>Historique</h2>
+      </div>
+      <p id="history-empty" class="empty">Les vidéos et articles analysés apparaîtront ici.</p>
+      <ol id="history" class="history"></ol>
+
+      <div class="section-head">
+        <h2>Podcasts et chaînes suivis</h2>
+        <button id="refresh" class="pill">Relancer</button>
+      </div>
+      <p class="meta"><span id="watch-meta"></span></p>
       <p id="watch-status" class="status"></p>
       <ol id="episodes" class="episodes"></ol>
     </section>
 
     <footer>
-      <label>
-        Serveur
-        <input id="backend" type="url" spellcheck="false" />
-      </label>
+      <details>
+        <summary>Réglages</summary>
+        <label>
+          Serveur
+          <input id="backend" type="url" spellcheck="false" />
+        </label>
+      </details>
     </footer>
 
     <script src="sidepanel.js"></script>

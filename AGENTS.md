@@ -120,6 +120,7 @@ python scripts/fetch_insee.py
 - [ ] Créer le service PostgreSQL sur Aiven et mettre son Service URI dans `backend/.env` (`DATABASE_URL`)
 - [x] Outils INSEE en direct pour Claude (`insee_api.py`) : vérification web et chat lisent les séries officielles hors référentiel (inflation, dette, PIB…) — Lots A/C
 - [x] Vidéos YouTube sans sous-titres : le serveur Node télécharge l'audio (yt-dlp) et le fait transcrire par Deepgram (`/api/transcribe-youtube`) — Lot A
+- [x] Panneau façon ChatGPT : verdicts en liste dépliable, filtres par verdict, onglet Veille avec résumé faux/trompeur de la session (dédoublonné) et historique des pages analysées (`chrome.storage.local`) — Lot A
 - [ ] Google Fact Check Tools en première étape de vérification — Lot C
 - [ ] Itérer les prompts sur 2-3 vraies vidéos — Lots B/C
 - [ ] Choisir et mettre en cache les vidéos de démo — Lot E

@@ -148,8 +148,7 @@ async function autoCheck(page: Page, force = false, intro?: string): Promise<voi
     page.claims = res.claims;
     showVerdicts(msg, page, res);
   } catch (err) {
-    msg.setText(explain(err));
-    msg.done();
+    msg.fail(explain(err));
   } finally {
     setAnalyzing(-1);
   }
@@ -194,53 +193,94 @@ async function checkSelection(text: string, url: string, title: string): Promise
     const res = await checkClaims({ source: { kind: "selection", url, title }, segments: [{ text }] });
     showVerdicts(msg, undefined, res);
   } catch (err) {
-    msg.setText(explain(err));
-    msg.done();
+    msg.fail(explain(err));
   }
 }
+
+const VERDICT_ORDER: Verdict[] = ["faux", "trompeur", "vrai", "invérifiable"];
 
 function showVerdicts(msg: BotMessage, page: Page | undefined, res: CheckResponse): void {
   const n = res.claims.length;
   const where = page ? ` dans « ${page.title} »` : "";
   msg.setText(n
-    ? `J'ai vérifié ${n} affirmation${n > 1 ? "s" : ""}${where} :`
+    ? `J'ai vérifié ${n} affirmation${n > 1 ? "s" : ""}${where}.`
     : `Je n'ai pas trouvé d'affirmation vérifiable${where}. Vous pouvez quand même me poser vos questions.`);
   if (res.demo) msg.body.prepend(el("div", { className: "demo" }, "Mode démo : verdicts fictifs (moteur non branché)."));
-  if (n) {
-    const counts = new Map<Verdict, number>();
-    for (const c of res.claims) counts.set(c.verdict, (counts.get(c.verdict) ?? 0) + 1);
-    msg.body.append(
-      el("div", { className: "stats" }, ...[...counts].map(([v, k]) => el("span", { className: "verdict", style: `--c:var(--${v})` }, `${v} · ${k}`))),
-      el("ol", { className: "claims" }, ...res.claims.map((c) => claimCard(c, page))),
-    );
-  }
+  if (n) msg.body.append(...verdictList(res.claims, page));
   msg.done();
+  if (page) void saveHistory(page, res.claims);
   showChips(n ? ["Résume les verdicts", "Quel est le taux de chômage aujourd'hui ?"] : ["Quel est le taux de chômage aujourd'hui ?"]);
 }
 
-function claimCard(claim: Claim, page: Page | undefined): HTMLElement {
-  const head = el("div", { className: "claim-head" }, el("span", { className: "verdict" }, claim.verdict));
+/** Filtres par verdict (cliquables) + liste d'affirmations, triée dans l'ordre de la vidéo. */
+function verdictList(claims: Claim[], page: Page | undefined): HTMLElement[] {
+  const sorted = [...claims].sort((a, b) => (a.start ?? Infinity) - (b.start ?? Infinity));
+  const list = el("ol", { className: "claims" }, ...sorted.map((c) => claimItem(c, page)));
+  const counts = new Map<Verdict, number>();
+  for (const c of claims) counts.set(c.verdict, (counts.get(c.verdict) ?? 0) + 1);
+  const filters = el("div", { className: "filters", role: "toolbar", ariaLabel: "Filtrer par verdict" });
+  const select = (v: Verdict | "tout") => {
+    filters.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.v === v)));
+    list.querySelectorAll<HTMLElement>(".claim").forEach((li) => { li.hidden = v !== "tout" && li.dataset.verdict !== v; });
+    list.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  };
+  const button = (v: Verdict | "tout", label: string) => {
+    const b = el("button", { className: `filter${v === "tout" ? "" : " tinted"}`, style: v === "tout" ? "" : `--c:var(--${v})` }, label);
+    b.dataset.v = v;
+    b.setAttribute("aria-pressed", String(v === "tout"));
+    b.addEventListener("click", () => select(b.getAttribute("aria-pressed") === "true" && v !== "tout" ? "tout" : v));
+    return b;
+  };
+  filters.append(button("tout", `Tout · ${claims.length}`),
+    ...VERDICT_ORDER.filter((v) => counts.has(v)).map((v) => button(v, `${v} · ${counts.get(v)}`)));
+  return [filters, list];
+}
+
+/** « Plutôt vrai : … Correction : … » → nuance, explication et correction séparées pour l'affichage. */
+function splitExplanation(text: string): { nuance?: string; body: string; correction?: string } {
+  const m = text.match(/^(Plutôt vrai|Imprécis)\s*:\s*/);
+  let body = m ? text.slice(m[0].length) : text;
+  let correction: string | undefined;
+  const i = body.indexOf("Correction :");
+  if (i >= 0) {
+    correction = body.slice(i + "Correction :".length).trim();
+    body = body.slice(0, i).trim();
+  }
+  return { nuance: m?.[1], body, correction };
+}
+
+/** Une affirmation : une ligne (verdict + citation + moment) qui se déplie sur le détail. */
+function claimItem(claim: Claim, page: Page | undefined): HTMLElement {
+  const { nuance, body, correction } = splitExplanation(claim.explanation);
+  const row = el("summary", { className: "claim-row" },
+    el("span", { className: "badge", style: `--c:var(--${claim.verdict})` }, claim.verdict),
+    el("span", { className: "claim-quote" }, claim.quote));
+  const actions = el("div", { className: "claim-actions" });
   if (claim.start !== undefined && page?.kind === "youtube") {
     const seek = el("button", { className: "seek", title: "Aller à ce moment de la vidéo" }, `▶ ${formatTime(claim.start)}`);
-    seek.addEventListener("click", () => void seekVideo(page.tabId, claim.start!));
-    head.append(seek);
+    seek.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); void seekVideo(page.tabId, claim.start!); });
+    row.append(seek);
   }
-  const why = el("button", { className: "link" }, "Pourquoi ?");
+  const why = el("button", { className: "link" }, "Pourquoi ce verdict ?");
   why.addEventListener("click", () => void ask(`Pourquoi « ${claim.verdict} » pour : « ${claim.quote} » ?`));
-  const card = el("li", { className: "claim", style: `--c:var(--${claim.verdict})` },
-    head,
-    el("p", { className: "quote" }, `« ${claim.quote} »`),
-    el("p", { className: "explanation" }, claim.explanation),
-    el("ul", { className: "sources" }, ...claim.sources.filter((s) => isWebUrl(s.url)).map((s) =>
+  actions.append(why);
+  const sources = claim.sources.filter((s) => isWebUrl(s.url));
+  const detail = el("div", { className: "claim-detail" },
+    ...(nuance ? [el("p", { className: "nuance" }, nuance)] : []),
+    el("p", { className: "explanation" }, body),
+    ...(correction ? [el("div", { className: "correction" }, el("strong", {}, "Correction"), el("p", {}, correction))] : []),
+    ...(sources.length ? [el("ul", { className: "sources" }, ...sources.map((s) =>
       el("li", {}, el("a", { href: s.url, target: "_blank", rel: "noopener" }, s.label),
-        ...(s.official ? [el("span", { className: "official" }, "source officielle")] : [])))),
-    why,
+        ...(s.official ? [el("span", { className: "official" }, "officielle")] : []))))] : []),
+    actions,
   );
+  const li = el("li", { className: "claim" }, el("details", { className: "claim-box" }, row, detail));
+  li.dataset.verdict = claim.verdict;
   if (page?.videoId && claim.start !== undefined) {
-    card.dataset.video = page.videoId;
-    card.dataset.t = String(claim.start);
+    li.dataset.video = page.videoId;
+    li.dataset.t = String(claim.start);
   }
-  return card;
+  return li;
 }
 
 async function seekVideo(tabId: number, seconds: number): Promise<void> {
@@ -293,6 +333,7 @@ async function ask(text: string): Promise<void> {
   busy = true;
   $<HTMLButtonElement>("send").disabled = true;
   $<HTMLTextAreaElement>("question").value = "";
+  fitInput();
   showChips([]);
   userMessage(text);
   history.push({ role: "user", content: text });
@@ -317,12 +358,20 @@ async function ask(text: string): Promise<void> {
     }
   } catch (err) {
     history.pop();
-    msg.setText(explain(err));
+    msg.fail(explain(err));
   } finally {
     msg.done();
     busy = false;
-    $<HTMLButtonElement>("send").disabled = false;
+    fitInput();
   }
+}
+
+/** Champ de saisie : grandit avec le texte ; envoi possible seulement s'il y a du texte. */
+function fitInput(): void {
+  const input = $<HTMLTextAreaElement>("question");
+  input.style.height = "auto";
+  input.style.height = `${Math.min(input.scrollHeight, 140)}px`;
+  $<HTMLButtonElement>("send").disabled = busy || !input.value.trim();
 }
 
 function showChips(labels: string[]): void {
@@ -339,6 +388,7 @@ interface BotMessage {
   body: HTMLElement;
   setText(text: string): void;
   done(): void;
+  fail(text: string): void;
 }
 
 function userMessage(text: string): void {
@@ -354,6 +404,7 @@ function botMessage(text: string, pending = false): BotMessage {
     body,
     setText: (t) => { p.textContent = t; scrollDown(); },
     done: () => { body.classList.remove("pending"); scrollDown(); },
+    fail: (t) => { p.textContent = t; body.classList.remove("pending"); body.classList.add("error"); scrollDown(); },
   };
 }
 
@@ -378,15 +429,125 @@ const STATUS_LABEL: Record<EpisodeStatus, string> = {
 };
 
 async function loadWatch(): Promise<void> {
+  const history = await loadHistory();
+  renderHistory(history);
   try {
     const data = await api<WatchResponse>("/api/watch");
     const last = data.lastPollAt ? new Date(data.lastPollAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) : "jamais";
     $("watch-meta").textContent = `Dernier passage : ${last}`;
     setStatus("watch-status", data.transcriptionEnabled ? "" : "Transcription désactivée : ajoutez DEEPGRAM_API_KEY dans server/.env.");
     $("episodes").replaceChildren(...data.episodes.map(episodeCard));
+    renderSessionSummary(history, data.episodes);
   } catch (err) {
     setStatus("watch-status", explain(err), true);
+    renderSessionSummary(history, []);
   }
+}
+
+// --- Historique (pages analysées, gardé dans le navigateur) -----------------------
+
+interface HistoryEntry {
+  key: string;
+  url: string;
+  title: string;
+  kind: Page["kind"];
+  videoId?: string;
+  speaker?: string;
+  at: string;
+  session: string;
+  claims: Claim[];
+}
+
+const HISTORY_MAX = 40;
+let sessionId = "";
+
+/** Une « session » dure jusqu'à la fermeture du navigateur (chrome.storage.session). */
+async function initSession(): Promise<void> {
+  const stored = (await chrome.storage.session.get("sessionId")) as { sessionId?: string };
+  sessionId = stored.sessionId ?? crypto.randomUUID();
+  if (!stored.sessionId) await chrome.storage.session.set({ sessionId });
+}
+
+async function loadHistory(): Promise<HistoryEntry[]> {
+  return ((await chrome.storage.local.get("history")) as { history?: HistoryEntry[] }).history ?? [];
+}
+
+async function saveHistory(page: Page, claims: Claim[]): Promise<void> {
+  const key = page.videoId ?? page.url;
+  const entry: HistoryEntry = { key, url: page.url, title: page.title, kind: page.kind, videoId: page.videoId,
+    speaker: page.speaker, at: new Date().toISOString(), session: sessionId, claims };
+  const list = [entry, ...(await loadHistory()).filter((h) => h.key !== key)].slice(0, HISTORY_MAX);
+  await chrome.storage.local.set({ history: list });
+}
+
+/** Ouvre (ou réactive) l'onglet de la page ; l'analyse revient du cache du serveur, sans nouvel appel à Claude. */
+async function openPage(url: string, seconds?: number): Promise<void> {
+  const target = seconds !== undefined && youtubeId(url) ? `https://www.youtube.com/watch?v=${youtubeId(url)}&t=${Math.floor(seconds)}s` : url;
+  const [existing] = await chrome.tabs.query({ url: url.split("#")[0] });
+  if (existing?.id !== undefined && seconds === undefined) await chrome.tabs.update(existing.id, { active: true });
+  else await chrome.tabs.create({ url: target });
+  showTab("chat");
+}
+
+function renderHistory(history: HistoryEntry[]): void {
+  $("history-empty").hidden = history.length > 0;
+  $("history").replaceChildren(...history.map((h) => {
+    const counts = VERDICT_ORDER.map((v) => [v, h.claims.filter((c) => c.verdict === v).length] as const).filter(([, k]) => k);
+    const when = new Date(h.at).toLocaleString("fr-FR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+    const open = el("button", { className: "history-item", title: "Rouvrir : les verdicts reviennent sans nouvelle analyse" },
+      el("span", { className: "history-title" }, `${h.kind === "youtube" ? "▶" : "📄"} ${h.title}`),
+      el("span", { className: "meta" }, [when, h.speaker].filter(Boolean).join(" · ")),
+      el("span", { className: "mini-counts" }, ...(counts.length
+        ? counts.map(([v, k]) => el("span", { className: "mini", style: `--c:var(--${v})` }, `${k} ${v}`))
+        : [el("span", { className: "meta" }, "aucune affirmation vérifiable")])));
+    open.addEventListener("click", () => void openPage(h.url));
+    return el("li", {}, open);
+  }));
+}
+
+/**
+ * Affirmations fausses ou trompeuses de la session (pages vues + podcasts de la veille du jour).
+ * Une même phrase vue à plusieurs endroits (vidéo revue, extrait repris par un podcast) n'apparaît qu'une fois.
+ */
+function renderSessionSummary(history: HistoryEntry[], episodes: WatchEpisode[]): void {
+  type Seen = { title: string; url: string; seconds?: number };
+  const bad = (c: Claim) => c.verdict === "faux" || c.verdict === "trompeur";
+  const today = new Date().toDateString();
+  const found: { claim: Claim; seen: Seen }[] = [
+    ...history.filter((h) => h.session === sessionId).flatMap((h) =>
+      h.claims.filter(bad).map((claim) => ({ claim, seen: { title: h.title, url: h.url, seconds: h.kind === "youtube" ? claim.start : undefined } }))),
+    ...episodes.filter((e) => e.claims && new Date(e.publishedAt).toDateString() === today).flatMap((e) =>
+      e.claims!.filter(bad).map((claim) => ({ claim, seen: { title: `${e.feedName} – ${e.title}`, url: e.url } }))),
+  ];
+  const byQuote = new Map<string, { claim: Claim; seen: Seen[] }>();
+  for (const { claim, seen } of found) {
+    const key = claim.quote.toLowerCase().normalize("NFD").replace(/[^a-z0-9]+/g, " ").trim();
+    const entry = byQuote.get(key) ?? byQuote.set(key, { claim, seen: [] }).get(key)!;
+    if (!entry.seen.some((s) => s.url === seen.url)) entry.seen.push(seen);
+  }
+  const items = [...byQuote.values()].sort((a, b) => VERDICT_ORDER.indexOf(a.claim.verdict) - VERDICT_ORDER.indexOf(b.claim.verdict));
+  const nFaux = items.filter((i) => i.claim.verdict === "faux").length;
+  const nTromp = items.length - nFaux;
+  $("summary-meta").textContent = `cette session${items.length ? ` · ${nFaux} faux · ${nTromp} trompeur${nTromp > 1 ? "s" : ""}` : ""}`;
+  $("summary-empty").hidden = items.length > 0;
+  $("session-summary").replaceChildren(...items.map(({ claim, seen }) => {
+    const { body, correction } = splitExplanation(claim.explanation);
+    const row = el("summary", { className: "claim-row" },
+      el("span", { className: "badge", style: `--c:var(--${claim.verdict})` }, claim.verdict),
+      el("span", { className: "claim-quote" }, claim.quote),
+      ...(seen.length > 1 ? [el("span", { className: "seen-count", title: "Vue dans plusieurs sources" }, `×${seen.length}`)] : []));
+    const links = seen.map(({ title, url, seconds }) => {
+      const go = el("button", { className: "link" }, seconds !== undefined ? `▶ ${formatTime(seconds)} · ${title}` : title);
+      go.addEventListener("click", () => void (isWebUrl(url) && openPage(url, seconds)));
+      return el("li", {}, go);
+    });
+    return el("li", { className: "claim" }, el("details", { className: "claim-box" }, row,
+      el("div", { className: "claim-detail" },
+        el("p", { className: "explanation" }, body),
+        ...(correction ? [el("div", { className: "correction" }, el("strong", {}, "Correction"), el("p", {}, correction))] : []),
+        el("p", { className: "seen-label" }, seen.length > 1 ? `Vue dans ${seen.length} sources` : "Vue dans"),
+        el("ul", { className: "seen" }, ...links))));
+  }));
 }
 
 function episodeCard(ep: WatchEpisode): HTMLElement {
@@ -405,7 +566,7 @@ function episodeCard(ep: WatchEpisode): HTMLElement {
   if (ep.claims) {
     card.append(el("details", {},
       el("summary", {}, `${ep.claims.length} affirmation(s)`),
-      el("ol", { className: "claims" }, ...ep.claims.map((c) => claimCard(c, undefined))),
+      ...verdictList(ep.claims, undefined),
     ));
   }
   return card;
@@ -484,6 +645,8 @@ async function init(): Promise<void> {
   document.querySelectorAll<HTMLElement>(".tab").forEach((t) => t.addEventListener("click", () => showTab(t.dataset.tab as "chat" | "watch")));
 
   $("ask").addEventListener("submit", (e) => { e.preventDefault(); void ask($<HTMLTextAreaElement>("question").value); });
+  $("question").addEventListener("input", fitInput);
+  fitInput();
   $("question").addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void ask($<HTMLTextAreaElement>("question").value); }
   });
@@ -510,8 +673,14 @@ async function init(): Promise<void> {
   chrome.tabs.onUpdated.addListener((_id, change) => { if (change.url || change.status === "complete") void refreshPage(); });
   setInterval(() => void pollPlayback(), TIME_POLL_MS);
 
-  botMessage("Bonjour ! Ouvrez une vidéo YouTube d'un·e responsable politique : je vérifie automatiquement ses affirmations, puis vous pouvez me poser vos questions. Sur un article, demandez « Vérifier cette page », ou sélectionnez une phrase puis clic droit.");
+  const hello = botMessage("Bonjour ! Je vérifie les affirmations des responsables politiques à partir des données publiques.");
+  hello.body.append(el("ul", { className: "hello" },
+    el("li", {}, "Ouvrez une vidéo YouTube : je la vérifie toute seule."),
+    el("li", {}, "Sur un article : « Analyser la page » en haut."),
+    el("li", {}, "Une phrase précise : sélectionnez-la, puis clic droit."),
+    el("li", {}, "Ensuite, posez vos questions ci-dessous.")));
   showChips(["Quel est le taux de chômage aujourd'hui ?"]);
+  await initSession();
   await consumePendingSelection();
   await refreshPage();
 }
