@@ -28,7 +28,13 @@ const app = new Hono();
 // Pas de CORS : l'extension a les droits d'accès au serveur, les sites web non.
 // Exiger du JSON force une requête de vérification préalable (CORS) qu'un site web ne peut pas passer :
 // sans ça, une page pourrait poster du texte brut vers localhost et empoisonner le cache.
+// On refuse aussi tout Host autre que localhost (DNS rebinding) et toute origine qui n'est pas une extension.
+const allowedHosts = new Set([`localhost:${port}`, `127.0.0.1:${port}`, `[::1]:${port}`]);
 app.use("/api/*", async (c, next) => {
+  const origin = c.req.header("origin");
+  if (!allowedHosts.has(c.req.header("host") ?? "") || (origin && !origin.startsWith("chrome-extension://"))) {
+    return c.json({ error: "Accès réservé à l'extension." }, 403);
+  }
   if (c.req.method === "POST" && !c.req.header("content-type")?.startsWith("application/json")) {
     return c.json({ error: "Content-Type application/json requis." }, 415);
   }
