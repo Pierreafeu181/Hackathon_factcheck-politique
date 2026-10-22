@@ -1,7 +1,7 @@
 import type { CheckRequest, CheckResponse, Claim, EpisodeStatus, WatchEpisode, WatchResponse } from "../../shared/contract.ts";
 import type { ExtractResult } from "./extract.ts";
 
-const DEFAULT_BACKEND = "http://localhost:8787";
+const DEFAULT_BACKEND = "http://localhost:8790";
 const WATCH_REFRESH_MS = 15_000;
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;

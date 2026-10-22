@@ -13,7 +13,7 @@ try {
   // Pas de .env : on garde les valeurs par défaut.
 }
 
-const port = Number(process.env.PORT ?? 8787);
+const port = Number(process.env.PORT ?? 8790);
 const feeds: Feed[] = JSON.parse(readFileSync(new URL("../feeds.json", import.meta.url), "utf8"));
 
 const watcher = new Watcher({

@@ -11,7 +11,7 @@ Vérification des affirmations des responsables politiques français, sources of
 ```bash
 npm install
 cp server/.env.example server/.env   # ajouter DEEPGRAM_API_KEY pour la transcription
-npm run dev:server                   # http://localhost:8787
+npm run dev:server                   # http://localhost:8790
 npm run build:ext                    # ou npm run watch:ext
 ```
 
