@@ -77,6 +77,29 @@ def main() -> None:
     assert db.get_speech("yt:TEST")[1][0].verification.verdict == Verdict.vrai
     print("db : profil", p.reliability_score, p.verdicts)
 
+    # POST /check (contrat Node) : LLM remplacé par des fonctions factices
+    from . import check_api
+    from .models import CheckRequest
+
+    fake_claims = [claim(quote="le chômage est à 8,3 %", value=last_v, unit=Unit.pourcent, timestamp_start=12.0),
+                   claim(quote="le chômage a baissé", claim_type=ClaimType.evolution, direction="baisse",
+                         period_start="2017", value=3, unit=Unit.points, timestamp_start=40.0)]
+    check_api.extract_claims = lambda *a, **k: fake_claims
+    check_api.verify = lambda c, *a, **k: Verification(
+        verdict=referentiel.check(c).verdict, method=Method.referentiel, explanation="x", confidence=0.9,
+        correction=None if referentiel.check(c).verdict == Verdict.vrai else "corrigé",
+        sources=referentiel.check(c).sources)
+    resp = check_api.check(CheckRequest.model_validate({
+        "source": {"kind": "youtube", "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "title": "t"},
+        "segments": [{"text": "…", "start": 10, "speaker": "1"}],
+        "politician": {"name": "Personne Démo"},
+    }))
+    assert [c.verdict for c in resp.claims] == ["vrai", "trompeur"], resp
+    assert resp.claims[0].start == 12.0 and resp.claims[0].sources[0].official
+    assert "Correction : corrigé" in resp.claims[1].explanation
+    assert db.get_speech("yt:dQw4w9WgXcQ") is not None  # stocké car politician fourni
+    print("/check :", [(c.verdict, c.start) for c in resp.claims])
+
     print("\nOK — tous les autotests passent")
 
 

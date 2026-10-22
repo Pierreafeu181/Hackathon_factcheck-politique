@@ -5,122 +5,135 @@
 
 ## 1. Le projet en 30 secondes
 
-**FactCheck Politique** : une extension Chrome qui, sur une vidéo YouTube d'un·e responsable politique,
-1. récupère le **transcript** ;
-2. en **extrait les affirmations factuelles vérifiables** (surtout chiffrées) ;
-3. les **vérifie** contre des **données publiques** (INSEE, DARES, data.gouv) en priorité, puis contre le **web** en repli ;
-4. rend un **verdict** (vrai / plutôt vrai / imprécis / trompeur / faux / invérifiable) avec **correction** et **sources** ;
-5. **stocke** tout pour construire à terme un **profil de fiabilité par personnalité politique**.
+**Vérif'Pol** vérifie les affirmations des responsables politiques français :
+1. une **extension Chrome** (ou la **veille RSS** du serveur) récupère le texte : transcript YouTube, article, sélection, podcast transcrit ;
+2. le **moteur d'analyse Python** en **extrait les affirmations vérifiables** (surtout chiffrées) ;
+3. il les **vérifie** contre des **données publiques** (INSEE, DARES) en priorité, puis contre le **web** en repli ;
+4. il rend un **verdict**, une **correction** et des **sources** ;
+5. il **stocke** tout pour construire un **profil de fiabilité par personnalité politique**.
 
-Contexte : **hackathon, 3 h**, en vue de la présidentielle. Périmètre MVP : **la thématique EMPLOI / CHÔMAGE uniquement**.
-Tout le reste (live, autres thèmes, autres médias, contradictions dans le temps) est dans `docs/ROADMAP.md` — **ne pas le coder maintenant**.
+Contexte : **hackathon de 3 h**, en vue de la présidentielle. Le référentiel de données officielles couvre pour l'instant **l'emploi et le chômage**.
+Tout le reste (live, autres thèmes, contradictions dans le temps) est dans `docs/ROADMAP.md` — **ne pas le coder maintenant**.
 
 ## 2. Carte du repo
 
 ```
-AGENTS.md                ← tu es ici
-README.md                ← présentation humaine + quickstart
-docs/
-  HACKATHON_PLAN.md      ← planning 3 h, qui fait quoi
-  ARCHITECTURE.md        ← flux de données, endpoints, choix techniques
-  DATA_CONTRACT.md       ← format JSON d'une affirmation / d'un verdict (CONTRAT GELÉ)
-  METHODOLOGIE.md        ← échelle des verdicts, règles de neutralité, éthique
-  DATA_SOURCES.md        ← séries INSEE/DARES utilisées, comment les mettre à jour
-  ROADMAP.md             ← l'après-hackathon
-  lots/LOT-*.md          ← une spec par lot de travail, avec critères de fin
-schemas/claim.schema.json← JSON Schema du contrat (validé côté backend)
-backend/                 ← API FastAPI (Python 3.11+)
-  app/main.py            ← endpoints
-  app/models.py          ← modèles Pydantic = contrat de données
-  app/transcript.py      ← récupération transcript YouTube
-  app/extract.py         ← LLM : transcript → affirmations
+AGENTS.md / CLAUDE.md    ← tu es ici
+README.md                ← présentation + lancement des 3 briques
+shared/contract.ts       ← FORMAT D'ÉCHANGE extension ↔ serveur ↔ moteur (CheckRequest / CheckResponse / Watch*)
+
+extension/               ← extension Chrome MV3 en TypeScript (Sébastien)
+  src/sidepanel.ts       ← panneau : onglets « Cette page » et « Veille », cartes verdict, saut vidéo
+  src/extract.ts         ← injecté dans la page : texte d'article (Readability) ou transcript YouTube horodaté
+  src/background.ts      ← menu clic droit « vérifier la sélection »
+  static/                ← manifest.json, sidepanel.html/css → copiés dans extension/dist par build.mjs
+server/                  ← serveur Node/Hono, port 8790 (Sébastien)
+  src/index.ts           ← /api/health, /api/check (relaie vers CHECKER_URL ou moteur démo), /api/watch
+  src/checker.ts         ← appel du moteur (CHECKER_URL) + faux moteur de démo
+  src/watcher.ts, rss.ts ← veille RSS (feeds.json), état dans server/data/state.json
+  src/deepgram.ts        ← transcription des podcasts (diarisation, garde l'invité)
+  test/                  ← tests (npm test)
+
+backend/                 ← MOTEUR D'ANALYSE Python / FastAPI, port 8000
+  app/main.py            ← endpoints (/check pour le serveur Node, /analyze, /politicians…)
+  app/check_api.py       ← adaptateur contract.ts ↔ pipeline Python (mapping des verdicts)
+  app/models.py          ← modèles Pydantic (modèle interne + miroir de contract.ts)
+  app/transcript.py      ← transcript YouTube côté serveur (souvent bloqué, voir §8)
+  app/extract.py         ← LLM : texte → affirmations structurées
   app/verify.py          ← routeur de vérification (référentiel → web)
-  app/referentiel.py     ← chargement des séries + comparaison DÉTERMINISTE
+  app/referentiel.py     ← séries officielles + comparaison DÉTERMINISTE
   app/llm.py             ← client Claude unique (modèle, fallbacks, helpers)
-  app/db.py              ← SQLite (politicians, speeches, claims, verifications)
+  app/db.py              ← SQLite (politicians, speeches, claims, verifications) + profils
   app/prompts/*.md       ← prompts système (à itérer ici, pas dans le code)
-scripts/fetch_insee.py   ← (re)génère data/referentiel/emploi.json depuis l'API INSEE
-data/referentiel/        ← séries.json (config) + emploi.json (données figées)
-data/fixtures/           ← transcript de démo synthétique pour tester sans YouTube
+  app/selftest.py        ← autotests sans clé API
+scripts/fetch_insee.py   ← (re)génère data/referentiel/<thème>.json depuis l'API INSEE
+data/referentiel/        ← series.json (config) + emploi.json (données figées)
+data/fixtures/           ← transcripts / requêtes de démo synthétiques
 db/schema.sql            ← schéma SQL (SQLite, compatible Postgres/Supabase)
-extension/               ← extension Chrome Manifest V3 (side panel)
+schemas/claim.schema.json← JSON Schema du modèle Python (généré)
+docs/                    ← plan, architecture, contrat, méthodologie, sources, roadmap, lots/
 ```
 
 ## 3. Règles non négociables
 
-1. **Le contrat de données (`docs/DATA_CONTRACT.md`, `backend/app/models.py`, `schemas/claim.schema.json`) est gelé.**
-   Si tu dois le changer : change les 3 fichiers **dans le même commit** et préviens l'équipe (message dans le canal + ligne dans `docs/DATA_CONTRACT.md#changelog`).
-2. **Les chiffres sont comparés en code, pas par le LLM.** Le LLM sert à : extraire, normaliser (indicateur, période, unité), et rédiger l'explication. La décision chiffrée vient de `referentiel.py`.
-3. **Toujours une source.** Un verdict autre que `invérifiable` sans `sources[]` non vide est un bug.
-4. **Neutralité.** On juge des **affirmations**, jamais des personnes. Pas de mot « fake », « menteur », etc. dans l'UI ni les prompts. Voir `docs/METHODOLOGIE.md`.
-5. **Pas de secret dans le repo.** Clé API dans `backend/.env` (ignoré par git). Modèle de fichier : `backend/.env.example`.
-6. **Modèle LLM** : centralisé dans `backend/app/llm.py` (`claude-opus-5-5` par défaut, surchargeable via `LLM_MODEL`). Ne pas instancier de client Anthropic ailleurs.
-7. **Démo d'abord.** Tout ce qui ne sert pas la démo de fin de hackathon va dans `docs/ROADMAP.md` au lieu d'être codé.
-8. **Un lot = un dossier/fichiers distincts** pour éviter les conflits git (voir §5). Commits petits et fréquents, `git pull --rebase` avant de pousser.
+1. **Deux formats, un seul à respecter pour l'échange.** `shared/contract.ts` est le format entre l'extension, le serveur et le moteur ; on ne le modifie **qu'en équipe**. Son miroir Python est dans `backend/app/models.py` (section « POST /check ») : si l'un change, l'autre change **dans le même commit**. Le modèle interne Python (`ExtractedClaim`, `Verification`, 6 verdicts) est plus riche ; il est converti par `app/check_api.py`.
+2. **Les chiffres sont comparés en code, pas par le LLM.** Le LLM extrait, normalise (indicateur, période, unité) et rédige. La décision chiffrée vient de `referentiel.py`.
+3. **Toujours une source.** Un verdict autre que `invérifiable` avec une liste de sources vide est un bug.
+4. **Neutralité.** On juge des **affirmations**, jamais des personnes. Pas de mot « fake », « menteur », etc. dans l'UI ni dans les prompts. Voir `docs/METHODOLOGIE.md`.
+5. **Pas de secret dans le repo.** Les clés vont dans `backend/.env` et `server/.env`, ignorés par git. Les modèles de fichier sont les `.env.example`.
+6. **Modèle LLM** : centralisé dans `backend/app/llm.py` (`claude-opus-5-5` par défaut, modifiable via `LLM_MODEL`). N'instancie pas de client Anthropic ailleurs.
+7. **Démo d'abord.** Tout ce qui ne sert pas la démo va dans `docs/ROADMAP.md`.
+8. **Un lot = des fichiers distincts** (voir §5). Commits petits et fréquents, `git pull --rebase` avant de pousser.
 
 ## 4. Commandes
 
 ```bash
-# Backend
+# Moteur Python
 cd backend
 python -m venv .venv && source .venv/bin/activate      # Windows : .venv\Scripts\activate
 pip install -r requirements.txt
-cp .env.example .env                                   # puis renseigner ANTHROPIC_API_KEY
-uvicorn app.main:app --reload --port 8000
+cp .env.example .env                                   # ANTHROPIC_API_KEY
+python -m app.selftest                                 # autotests sans clé API (référentiel, DB, /check)
+uvicorn app.main:app --reload --port 8000              # http://localhost:8000/docs
 
-# Tests rapides (sans clé API : référentiel + transcript)
-python -m app.selftest
+# Serveur Node + extension (depuis la racine)
+npm install
+cp server/.env.example server/.env                     # CHECKER_URL=http://localhost:8000/check (+ DEEPGRAM_API_KEY)
+npm run dev:server                                     # http://localhost:8790
+npm run build:ext                                      # → extension/dist, à charger dans chrome://extensions
+npm test                                               # tests serveur + typecheck extension
+
+# Tester le moteur directement
+curl -X POST localhost:8000/check -H "Content-Type: application/json" -d @data/fixtures/check_request.json
+curl -X POST localhost:8000/analyze -H "Content-Type: application/json" -d @data/fixtures/demo_request.json
 
 # Régénérer le référentiel emploi depuis l'INSEE (pas de clé requise)
-python ../scripts/fetch_insee.py
-
-# Analyse de bout en bout sur le transcript de démo (clé API requise)
-curl -X POST localhost:8000/analyze -H "Content-Type: application/json" \
-  -d @../data/fixtures/demo_request.json
+python scripts/fetch_insee.py
 ```
-
-Extension : `chrome://extensions` → mode développeur → « Charger l'extension non empaquetée » → dossier `extension/`.
-L'URL du backend se règle dans `extension/config.js` (défaut `http://localhost:8000`).
 
 ## 5. Répartition des lots (qui touche quoi)
 
-| Lot | Spec | Fichiers possédés | Dépend de |
-|---|---|---|---|
-| 0 — Contrat | `docs/lots/LOT-0-contrat.md` | `docs/DATA_CONTRACT.md`, `app/models.py`, `schemas/` | — (fait, gelé) |
-| A — Extension | `docs/lots/LOT-A-extension.md` | `extension/**` | contrat |
-| B — Transcript + extraction | `docs/lots/LOT-B-pipeline.md` | `app/transcript.py`, `app/extract.py`, `app/prompts/extract.md` | contrat |
-| C — Vérification emploi | `docs/lots/LOT-C-verification-emploi.md` | `app/referentiel.py`, `app/verify.py`, `app/prompts/verify_*.md`, `scripts/`, `data/referentiel/` | contrat |
-| D — Stockage + profils | `docs/lots/LOT-D-stockage-profils.md` | `app/db.py`, `db/schema.sql`, endpoints `/politicians*` | contrat |
-| E — Démo + pitch | `docs/lots/LOT-E-demo-pitch.md` | `data/fixtures/`, `docs/PITCH.md` | tout |
+| Lot | Spec | Fichiers possédés |
+|---|---|---|
+| 0 — Contrats | `docs/lots/LOT-0-contrat.md` | `shared/contract.ts`, `backend/app/models.py`, `docs/DATA_CONTRACT.md` (en équipe) |
+| A — Extension + serveur Node | `docs/lots/LOT-A-extension.md` | `extension/**`, `server/**`, `package.json` |
+| B — Extraction | `docs/lots/LOT-B-pipeline.md` | `backend/app/transcript.py`, `extract.py`, `prompts/extract.md` |
+| C — Vérification | `docs/lots/LOT-C-verification-emploi.md` | `backend/app/referentiel.py`, `verify.py`, `check_api.py`, `prompts/verify_*.md`, `scripts/`, `data/referentiel/` |
+| D — Stockage + profils | `docs/lots/LOT-D-stockage-profils.md` | `backend/app/db.py`, `db/schema.sql`, routes `/politicians*` |
+| E — Démo + pitch | `docs/lots/LOT-E-demo-pitch.md` | `data/fixtures/`, `docs/PITCH.md` |
 
-`app/main.py` est partagé : n'y ajoute **que** tes routes, sans réorganiser le reste.
+`backend/app/main.py` est partagé : n'y ajoute **que** tes routes, sans réorganiser le reste.
 
 ## 6. État actuel (à tenir à jour)
 
-- [x] Contrat de données, schéma SQL, squelettes de tous les modules
-- [x] Référentiel emploi INSEE figé dans `data/referentiel/emploi.json` (voir `docs/DATA_SOURCES.md` pour la liste exacte)
-- [x] Comparaison déterministe niveau / évolution / record (`referentiel.py`) + autotest
-- [x] Endpoints `/analyze`, `/videos/{id}/claims`, `/politicians`, `/politicians/{id}`
-- [x] Extension : side panel, lecture de l'ID vidéo, affichage des cartes, saut au timestamp
-- [ ] Itérer les prompts sur 2-3 vraies vidéos (Lot B/C)
-- [ ] Ajouter des séries DARES / France Travail (demandeurs d'emploi) si besoin (Lot C)
-- [ ] Page profil politicien dans l'extension (Lot D/A)
-- [ ] Choisir et mettre en cache les vidéos de démo (Lot E)
+- [x] Extension TS : page, vidéo YouTube, sélection par clic droit, onglet Veille, saut vidéo (gère les pubs)
+- [x] Serveur Node : relais `/api/check`, moteur de démo, veille RSS, transcription Deepgram des podcasts
+- [x] Moteur Python : référentiel de 15 séries INSEE/DARES, comparaison déterministe, extraction, repli web, SQLite, profils
+- [x] `POST /check` sur le moteur Python, compatible `shared/contract.ts` (autotest du mapping OK)
+- [ ] **Brancher et tester de bout en bout** : `CHECKER_URL=http://localhost:8000/check`, avec une vraie clé Anthropic (jamais testé avec le LLM)
+- [ ] Profils dans l'extension : l'onglet Profils de l'ancienne extension n'a pas été porté (API `GET /politicians` prête) — Lot A/D
+- [ ] Nom de l'orateur : `contract.ts` ne le transporte pas. Le Python accepte un champ optionnel `politician` ; décider si on l'ajoute au contrat — Lot 0
+- [ ] Google Fact Check Tools en première étape de vérification — Lot C
+- [ ] Itérer les prompts sur 2-3 vraies vidéos — Lots B/C
+- [ ] Choisir et mettre en cache les vidéos de démo — Lot E
 
 Quand tu termines une tâche, **coche-la ici** dans ton commit.
 
 ## 7. Définition de « fini » pour n'importe quelle tâche
 
-- Le code tourne localement (`uvicorn` démarre, `python -m app.selftest` passe).
-- Les sorties respectent le contrat (Pydantic valide).
-- Pas de nouveau secret, pas de nouvelle dépendance non ajoutée à `requirements.txt`.
-- La case correspondante du §6 est cochée, et la spec du lot mise à jour si le comportement a changé.
+- Ça tourne en local : `python -m app.selftest` et `npm test` passent.
+- Les échanges respectent `shared/contract.ts`.
+- Pas de nouveau secret ; les nouvelles dépendances sont ajoutées à `requirements.txt` ou au `package.json`.
+- La case du §6 est cochée, et la spec du lot est mise à jour si le comportement a changé.
 
 ## 8. Pièges connus
 
-- **YouTube transcript** : `youtube-transcript-api` (v1.x : `YouTubeTranscriptApi().fetch(video_id, languages=["fr"])`) marche depuis une IP perso, **bloqué depuis beaucoup d'IP cloud**. Plan B : l'extension envoie le texte du panneau « Transcription » de YouTube, ou on colle le transcript à la main (`transcript` dans la requête `/analyze`).
-- **Sous-titres auto** : pas de ponctuation, chiffres parfois écrits en lettres (« sept virgule cinq pour cent »). Le prompt d'extraction doit normaliser.
-- **Chômage : BIT ≠ France Travail.** Le « taux de chômage » (INSEE, BIT, enquête) n'est pas le « nombre de demandeurs d'emploi » (France Travail, catégories A/B/C). Un politique qui mélange les deux → verdict `imprécis`, pas `faux`.
-- **France entière vs hors Mayotte**, **CVS** (données corrigées des variations saisonnières) : toujours préciser dans `sources[].note`.
-- **Périodes** : « depuis 2017 » = comparer au T2 2017 (élection) ou à la moyenne 2017 ? Choix fait : dernier point **avant** la date citée ; le dire dans l'explication.
-- **Claude Opus 5.5** : pas de `temperature`, pas de `budget_tokens`, pas de prefill ; utiliser `output_config.effort`. Les `web_search` server tools = `web_search_20260209`. Tout est déjà encapsulé dans `app/llm.py`.
+- **Verdicts : 4 côté contrat, 6 côté Python.** Le mapping est dans `check_api.py` : plutôt vrai → `vrai`, imprécis → `trompeur`. La nuance est préfixée dans l'explication, suivie de « Correction : … ». Le contrat écrit **`invérifiable` avec accent** ; le Python interne écrit `inverifiable` sans accent.
+- **YouTube transcript** : le serveur (Python ou Node) est souvent bloqué par YouTube. La voie normale, c'est l'extension qui lit la transcription dans la page (`extension/src/extract.ts`). `backend/app/transcript.py` ne sert qu'à `/analyze` en local.
+- **Sous-titres auto** : pas de ponctuation, et des chiffres parfois écrits en lettres (« sept virgule cinq pour cent »). C'est le prompt d'extraction qui normalise.
+- **Chômage : BIT ≠ France Travail.** Le « taux de chômage » (INSEE, BIT) n'est pas le « nombre de demandeurs d'emploi » (France Travail, cat. A/B/C). Une confusion entre les deux donne `imprecis`, pas `faux`.
+- **France entière vs hors Mayotte**, **CVS** : à toujours préciser dans la note des sources.
+- **Périodes** : « depuis 2017 » = moyenne annuelle 2017 comparée au dernier point publié (voir `docs/METHODOLOGIE.md`).
+- **Ports** : moteur Python sur 8000, serveur Node sur 8790. L'extension parle au serveur Node, qui parle au moteur Python.
+- **Claude Opus 5.5** : pas de `temperature`, pas de `budget_tokens`, pas de prefill ; utiliser `output_config.effort`. L'outil serveur de recherche web est `web_search_20260209`. Tout est encapsulé dans `app/llm.py`.
+- **Windows** : chemins longs → `git config core.longpaths true`.

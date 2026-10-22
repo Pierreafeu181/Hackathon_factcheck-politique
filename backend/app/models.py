@@ -6,7 +6,7 @@ schemas/claim.schema.json (régénérer avec `python -m app.export_schema`).
 from __future__ import annotations
 
 from enum import Enum
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -173,6 +173,53 @@ class AnalyzeResponse(BaseModel):
     speech: Speech
     results: list[ClaimResult]
     stats: dict[str, int]
+
+
+# ---------------------------------------------------------------- POST /check
+# Miroir Python de shared/contract.ts (extension + serveur de veille Node). Ne pas diverger :
+# toute modification de ces classes se fait en même temps que contract.ts.
+
+CheckVerdict = Literal["vrai", "trompeur", "faux", "invérifiable"]
+
+
+class CheckSourceRef(BaseModel):
+    kind: Literal["article", "youtube", "selection", "podcast"]
+    url: str
+    title: Optional[str] = None
+
+
+class CheckSegment(BaseModel):
+    text: str
+    start: Optional[float] = None
+    speaker: Optional[str] = None
+
+
+class CheckRequest(BaseModel):
+    source: CheckSourceRef
+    segments: list[CheckSegment]
+    # Extensions Python facultatives (absentes de contract.ts, ignorées si non envoyées) :
+    politician: Optional[Speaker] = Field(default=None, description="Si fourni, le résultat est stocké pour les profils")
+    date: Optional[str] = None
+
+
+class Evidence(BaseModel):
+    label: str
+    url: str
+    official: bool
+
+
+class CheckClaim(BaseModel):
+    id: str
+    quote: str
+    verdict: CheckVerdict
+    explanation: str
+    sources: list[Evidence]
+    start: Optional[float] = None
+
+
+class CheckResponse(BaseModel):
+    claims: list[CheckClaim]
+    demo: bool = False
 
 
 class PoliticianProfile(BaseModel):

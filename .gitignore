@@ -1,12 +1,23 @@
+# Secrets
 .env
+
+# Node (extension + serveur de veille)
+node_modules/
+dist/
+server/data/
+
+# Python (backend d'analyse)
 .venv/
 venv/
 __pycache__/
 *.pyc
 *.db
 *.db-journal
+
+# Outils
 .DS_Store
-node_modules/
+.playwright-mcp/
+.superpowers/
 *.zip
 *.crx
 *.pem

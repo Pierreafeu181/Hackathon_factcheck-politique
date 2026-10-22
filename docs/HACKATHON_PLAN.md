@@ -33,5 +33,5 @@ Avec 3 personnes : fusionner D et E. Avec 2 : une personne sur A+D, une sur B+C,
 ## Plan B pour la démo
 
 1. Vidéos pré-analysées → les réponses sont en base SQLite et en cache (`/videos/{id}/claims` répond instantanément).
-2. YouTube bloque le transcript → cocher « Utiliser la transcription affichée sur la page » dans l'extension, ou coller le texte.
-3. API LLM lente ou en panne → rejouer `data/fixtures/<video_id>.json`.
+2. YouTube bloque le transcript côté serveur → aucun impact : l'extension lit la transcription dans la page.
+3. API LLM lente ou en panne → rejouer `data/fixtures/<video_id>.json`. En dernier recours, vider `CHECKER_URL` : le serveur Node repasse sur son moteur de démo, mais il faut dire au jury que les verdicts sont fictifs.

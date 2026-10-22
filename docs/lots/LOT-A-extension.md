@@ -1,25 +1,23 @@
-# Lot A — Extension Chrome
+# Lot A — Extension Chrome + serveur Node
 
-**Fichiers possédés** : `extension/**`
-**Objectif démo** : sur une vidéo YouTube, un clic ouvre le panneau, on lance l'analyse, puis des cartes colorées apparaissent. Cliquer sur l'horodatage renvoie la vidéo au bon moment.
+**Fichiers possédés** : `extension/**`, `server/**`, `package.json`
+**Objectif démo** : sur une vidéo YouTube ou un article, un clic ouvre le panneau, on lance l'analyse, puis des cartes de verdict apparaissent. Cliquer sur l'horodatage renvoie la vidéo au bon moment. L'onglet Veille montre les derniers épisodes analysés.
 
-## État actuel (fonctionnel)
-- `manifest.json` (MV3, side panel), `background.js` (le clic sur l'icône ouvre le panneau).
-- `content.js` : lit `videoId`, le titre et la chaîne ; `seek(t)` ; lit le panneau « Transcription » du DOM (plan B).
-- `sidepanel.*` : formulaire orateur / parti / date, appel `POST /analyze`, rendu des cartes (badge, citation, explication, correction, sources, méthode, confiance), chargement auto du cache `GET /videos/{id}/claims`, onglet **Profils** (`GET /politicians`).
+## État actuel (branche de Sébastien, fusionnée)
+- **Extension TS** (`npm run build:ext` → `extension/dist`) : onglets « Cette page » et « Veille », extraction d'article (Readability) ou de transcript YouTube horodaté (`src/extract.ts`), vérification d'une sélection au clic droit, saut vidéo qui gère les pubs.
+- **Serveur Node** (port 8790) : `/api/check` relayé vers `CHECKER_URL` (sinon moteur de démo), `/api/watch` (veille RSS, transcription Deepgram des podcasts).
+- **Branchement au moteur Python** : `CHECKER_URL=http://localhost:8000/check` dans `server/.env`.
 
 ## Tâches, par priorité
-1. **[P0] Tester en vrai** sur 2-3 vidéos et corriger les sélecteurs DOM YouTube si besoin (`h1.ytd-watch-metadata`, `ytd-channel-name a`, `ytd-transcript-segment-renderer .segment-text`). YouTube change souvent son DOM.
-2. **[P0] Navigation SPA** : YouTube ne recharge pas la page entre deux vidéos. Vérifier que `refreshVideo()` se déclenche (`chrome.tabs.onUpdated` sur `url`). Sinon, écouter l'événement `yt-navigate-finish` dans `content.js` et notifier le panneau.
-3. **[P1] Mémoriser l'orateur par chaîne** (`chrome.storage.local`) pour ne pas le retaper.
-4. **[P1] Filtre par verdict** (cliquer sur un badge de `#stats` filtre les cartes) et tri par horodatage ou par gravité.
-5. **[P1] Lien carte → profil** : clic sur le nom de l'orateur, puis onglet Profils centré sur lui.
-6. **[P2] Surlignage pendant la lecture** : `content.js` envoie `currentTime` toutes les 2 s ; la carte en cours est mise en évidence. C'est l'amorce du « live ».
-7. **[P2] Petit badge en surimpression sur la vidéo** au moment d'une affirmation (injection DOM dans `#movie_player`).
+1. **[P0] Bout en bout** : backend Python avec une clé Anthropic, `CHECKER_URL` renseigné, extension chargée. Tester sur 2 vidéos et 1 article. Le temps d'analyse est de 30 s à 2 min : vérifier que le `fetch` de `server/src/checker.ts` ne coupe pas avant, et sinon augmenter le délai ou afficher une progression.
+2. **[P0] Nom de l'orateur** : le contrat ne le transporte pas, donc rien n'est stocké pour les profils. Proposer en équipe d'ajouter `politician?: { name: string; party?: string }` et `date?: string` à `CheckRequest`, champs que le Python accepte déjà, puis un champ « Orateur » dans le panneau (pré-rempli avec la chaîne YouTube).
+3. **[P1] Onglet Profils** : appeler `GET http://localhost:8000/politicians` via le serveur Node (ajouter un relais `/api/politicians`) et afficher le score, le nombre d'affirmations et la répartition des verdicts. L'ancienne extension JS natif faisait ça : voir l'historique git, `extension/sidepanel.js` au commit `e6c92ba`.
+4. **[P1] Correction mise en avant** : le moteur Python ajoute « Correction : … » à la fin de `explanation`. L'afficher dans un encadré distinct (découper sur « Correction : »).
+5. **[P2] Surlignage pendant la lecture** de la carte en cours, puis badge en surimpression sur la vidéo : c'est l'amorce du live.
 
 ## Critères de fin
-- Démo sans erreur console sur 2 vidéos différentes, enchaînées sans recharger l'onglet.
-- Le plan B (transcript DOM) fonctionne quand le backend renvoie 422.
+- Démo sans erreur console sur 2 vidéos enchaînées et 1 article, avec les verdicts du moteur Python (pas « [Démo] »).
+- `npm test` passe.
 
 ## Prompt de démarrage pour ton agent
-> Lis AGENTS.md puis docs/lots/LOT-A-extension.md. Tu travailles uniquement dans `extension/`. Commence par la tâche P0 n°2 (navigation SPA YouTube), puis la n°3. Pas de framework ni de build : JS natif. Respecte le contrat (docs/DATA_CONTRACT.md) pour lire les réponses de l'API.
+> Lis AGENTS.md puis docs/lots/LOT-A-extension.md. Lance le backend Python (port 8000) et le serveur Node avec CHECKER_URL=http://localhost:8000/check. Commence par la tâche P0 n°1 : vérifie le délai d'attente dans server/src/checker.ts et l'affichage de la progression dans extension/src/sidepanel.ts. Respecte shared/contract.ts.

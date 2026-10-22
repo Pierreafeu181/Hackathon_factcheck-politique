@@ -1,7 +1,44 @@
-# Contrat de données (GELÉ)
+# Contrats de données
 
-Source de vérité : `backend/app/models.py`. JSON Schema généré : `schemas/claim.schema.json` (`python -m app.export_schema`).
-Toute modification doit changer les deux fichiers et ce document dans le même commit, avec une ligne dans le changelog en bas.
+Il y a deux niveaux :
+
+1. **Le format d'échange** : `shared/contract.ts`. C'est le format entre l'extension, le serveur Node et le moteur Python. On ne le modifie **qu'en équipe**. Son miroir Python est dans `backend/app/models.py`, section « POST /check ».
+2. **Le modèle interne du moteur Python** : `backend/app/models.py`, avec le JSON Schema généré dans `schemas/claim.schema.json` (`python -m app.export_schema`). Il est plus riche (6 verdicts, indicateur, valeur, période…) et sert au stockage et aux profils.
+
+## Format d'échange : POST /check (`shared/contract.ts`)
+
+```jsonc
+// CheckRequest  (extension → serveur Node /api/check → moteur Python /check)
+{ "source": { "kind": "youtube", "url": "…", "title": "…" },          // kind : article | youtube | selection | podcast
+  "segments": [{ "text": "Le chômage est à 7 %…", "start": 801, "speaker": "1" }],
+  // facultatif, accepté par le Python mais pas encore dans contract.ts :
+  "politician": { "name": "…", "party": "…" }, "date": "AAAA-MM-JJ" }
+
+// CheckResponse
+{ "claims": [{ "id": "yt:abc#0", "quote": "Le chômage est à 7 %", "verdict": "faux",
+               "explanation": "… Correction : …", "start": 801,
+               "sources": [{ "label": "INSEE – Taux de chômage…", "url": "https://…", "official": true }] }],
+  "demo": false }
+```
+
+Correspondance des verdicts (`backend/app/check_api.py`) :
+
+| Moteur Python | Contrat | Ajout dans `explanation` |
+|---|---|---|
+| `vrai` | `vrai` | — |
+| `plutot_vrai` | `vrai` | préfixe « Plutôt vrai : » |
+| `imprecis` | `trompeur` | préfixe « Imprécis : » |
+| `trompeur` | `trompeur` | — |
+| `faux` | `faux` | — |
+| `inverifiable` | `invérifiable` | — |
+
+`official` vaut `true` pour une source du référentiel, ou pour un domaine public (insee.fr, gouv.fr, assemblee-nationale.fr, senat.fr, ec.europa.eu…).
+
+---
+
+# Modèle interne du moteur Python
+
+Toute modification doit changer `models.py`, le schéma généré et ce document dans le même commit, avec une ligne dans le changelog en bas.
 
 ## ExtractedClaim : une affirmation
 
@@ -68,3 +105,4 @@ Identifiants : speech `yt:<video_id>` (ou `txt:<hash>`), claim `<speech_id>#<n>`
 ## Changelog
 
 - 2026-10-22 : v0.1, contrat initial.
+- 2026-10-22 : fusion avec la branche de Sébastien. `shared/contract.ts` devient le format d'échange ; ajout de `POST /check` et de son miroir Pydantic.

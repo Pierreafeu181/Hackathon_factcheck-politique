@@ -1,75 +1,87 @@
-# FactCheck Politique
+# Vérif'Pol
 
-**Une extension Chrome qui vérifie en direct les chiffres cités dans les discours politiques, à partir des données publiques.**
+Vérification des affirmations des responsables politiques français, sources officielles à l'appui.
 
-Sur une vidéo YouTube d'une interview, d'un meeting ou d'un débat, l'extension :
+Sur une vidéo YouTube, un article, une phrase sélectionnée ou un podcast suivi en veille :
 
-1. récupère le **transcript** ;
-2. en extrait les **affirmations factuelles chiffrées** (« le chômage a baissé de 3 points depuis 2017 ») ;
-3. les **compare aux séries officielles** (INSEE, DARES / France Travail via data.gouv) ou, à défaut, les vérifie **sur le web** ;
-4. affiche un **verdict** (vrai, plutôt vrai, imprécis, trompeur, faux, invérifiable), la **valeur officielle**, une **correction** et les **sources**. Un clic renvoie au bon moment de la vidéo ;
-5. **stocke** tout pour construire une base de discours analysés et un **profil de fiabilité** par personnalité.
+1. le **transcript** ou le texte est récupéré ;
+2. les **affirmations factuelles chiffrées** sont extraites ;
+3. elles sont **comparées aux séries officielles** (INSEE, DARES / France Travail), ou vérifiées **sur le web** à défaut ;
+4. l'extension affiche un **verdict**, une **explication avec correction** et les **sources**. Un clic renvoie au bon moment de la vidéo ;
+5. tout est **stocké** pour construire une base de discours et un **profil de fiabilité** par personnalité.
 
-> Hackathon, présidentielle. MVP limité à la thématique **emploi / chômage** (15 séries officielles).
+> Hackathon, présidentielle. Le MVP vérifie sur données officielles la thématique **emploi / chômage** (15 séries). Les autres thèmes passent par la recherche web.
 > **Agents de code : lisez [`AGENTS.md`](AGENTS.md) en premier.**
 
-## Démarrage rapide (5 min)
+## Les trois briques
+
+```
+┌─ extension/ (TypeScript) ─────┐   POST /api/check   ┌─ server/ (Node, port 8790) ─────┐   POST /check    ┌─ backend/ (Python, port 8000) ──────────┐
+│ panneau latéral Chrome        │ ──────────────────► │ relais + veille RSS             │ ───────────────► │ moteur d'analyse                        │
+│ - page / vidéo YouTube        │                     │ - podcasts → Deepgram           │  (CHECKER_URL)   │ - extraction (Claude)                   │
+│ - sélection (clic droit)      │ ◄────────────────── │ - vidéos YouTube à ouvrir       │ ◄─────────────── │ - vérif. déterministe INSEE / DARES     │
+│ - onglet Veille               │    CheckResponse    │ - moteur démo si pas de checker │  CheckResponse   │ - repli web, SQLite, profils            │
+└───────────────────────────────┘                     └─────────────────────────────────┘                  └─────────────────────────────────────────┘
+                                  shared/contract.ts = format d'échange (miroir Python : backend/app/models.py, section « POST /check »)
+```
+
+Principe clé : **c'est le code qui tranche sur les chiffres, pas le LLM.** Le LLM extrait, normalise et rédige. La comparaison aux données officielles est déterministe, reproductible et sourcée.
+
+## Lancer le tout
 
 ```bash
-git clone <ce repo> && cd factcheck-politique/backend
+# 1. Moteur d'analyse (Python)
+cd backend
 python -m venv .venv && source .venv/bin/activate   # Windows : .venv\Scripts\activate
 pip install -r requirements.txt
 cp .env.example .env                                # mettre ANTHROPIC_API_KEY
-python -m app.selftest                              # vérifie référentiel + DB, sans clé API
-uvicorn app.main:app --reload --port 8000           # doc API : http://localhost:8000/docs
+python -m app.selftest                              # vérifie référentiel, DB, /check (sans clé API)
+uvicorn app.main:app --reload --port 8000           # doc : http://localhost:8000/docs
+
+# 2. Serveur de veille + extension (Node), depuis la racine
+npm install
+cp server/.env.example server/.env                  # CHECKER_URL=http://localhost:8000/check, + DEEPGRAM_API_KEY
+npm run dev:server                                  # http://localhost:8790
+npm run build:ext                                   # ou npm run watch:ext
 ```
 
-Ensuite, pour l'extension :
+Ensuite, dans Chrome :
 
 1. Ouvrir `chrome://extensions`.
 2. Activer le mode développeur.
-3. Cliquer sur « Charger l'extension non empaquetée » et choisir le dossier `extension/`.
-4. Ouvrir une vidéo YouTube, puis cliquer sur l'icône de l'extension.
+3. Cliquer sur « Charger l'extension non empaquetée » et choisir le dossier `extension/dist`.
+4. Cliquer sur l'icône Vérif'Pol pour ouvrir le panneau.
 
-Pour tester sans YouTube, avec un transcript synthétique :
+Tests :
 
-```bash
-curl -X POST localhost:8000/analyze -H "Content-Type: application/json" -d @../data/fixtures/demo_request.json
-```
+- Node : `npm test`.
+- Python : `cd backend && python -m app.selftest`.
 
-## Comment ça marche
+Sans `CHECKER_URL`, le serveur Node répond avec un **faux moteur de démo**, marqué « [Démo] ». Avec `CHECKER_URL=http://localhost:8000/check`, il utilise le moteur Python.
 
-```
-YouTube ──► extension (side panel) ──POST /analyze──► backend FastAPI
-                                                      │
-                     transcript.py   (youtube-transcript-api, ou transcript envoyé par l'extension)
-                          │
-                     extract.py      Claude → affirmations structurées (indicateur, valeur, unité, période)
-                          │
-                     verify.py ──► referentiel.py   comparaison DÉTERMINISTE aux séries INSEE / DARES
-                          │   └──► recherche web     (Claude + web_search) si hors référentiel
-                          │
-                     db.py (SQLite) ──► /politicians : profils de fiabilité
-```
+## Veille RSS
 
-Principe clé : **c'est le code qui tranche sur les chiffres, pas le LLM.** Le LLM extrait, normalise et rédige ; la comparaison est déterministe, reproductible et sourcée.
+Les flux suivis sont dans `server/feeds.json` : RMC Face à Face, l'invité RTL de 7h40, l'invité politique Sud Radio, Public Sénat et franceinfo sur YouTube.
+
+- **Podcasts** : le lien MP3 du flux est envoyé à Deepgram (Nova-3, français, séparation des voix). On ne garde que les phrases de l'intervenant qui parle le plus (l'invité), puis on les envoie à l'analyse.
+- **YouTube** : un serveur ne peut pas récupérer les sous-titres, car YouTube bloque. Les vidéos sont listées dans l'onglet « Veille » avec un bouton « Ouvrir et vérifier » ; l'extension lit alors la transcription dans le navigateur.
+
+Au premier lancement, seul le dernier épisode de chaque flux est traité (`MAX_EPISODES_PER_FEED`), pour ne pas transcrire tout l'historique. L'état est gardé dans `server/data/state.json`.
+
+## Sources de données
+
+- **INSEE, API BDM** (SDMX, sans clé) : 15 séries emploi figées dans `data/referentiel/emploi.json`, régénérables avec `python scripts/fetch_insee.py`. Détails dans [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md).
+- **Google Fact Check Tools** : `https://factchecktools.googleapis.com/v1alpha1/claims:search?query=…&languageCode=fr&key=…`, gratuit avec une clé Google Cloud. L'API renvoie les fact-checks déjà publiés (AFP Factuel, Les Décodeurs, Libé CheckNews…) avec leur verdict. Il faut l'interroger en premier : si un journaliste a déjà vérifié la phrase, on affiche son verdict. Ce n'est pas encore branché (voir Lot C). [Présentation](https://newsinitiative.withgoogle.com/resources/trainings/google-fact-check-tools/)
 
 ## Documentation
 
 | Document | Contenu |
 |---|---|
 | [AGENTS.md](AGENTS.md) | Règles, carte du repo, commandes, état d'avancement (à lire en premier) |
-| [docs/HACKATHON_PLAN.md](docs/HACKATHON_PLAN.md) | Planning sur 3 h, répartition de l'équipe |
+| [docs/HACKATHON_PLAN.md](docs/HACKATHON_PLAN.md) | Planning, répartition de l'équipe |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Flux de données, API, choix techniques |
-| [docs/DATA_CONTRACT.md](docs/DATA_CONTRACT.md) | Format d'une affirmation et d'un verdict (contrat gelé) |
+| [docs/DATA_CONTRACT.md](docs/DATA_CONTRACT.md) | Formats d'échange (`shared/contract.ts` et le modèle interne Python) |
 | [docs/METHODOLOGIE.md](docs/METHODOLOGIE.md) | Échelle des verdicts, tolérances, neutralité, éthique |
 | [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md) | Séries officielles utilisées, et comment en ajouter |
-| [docs/ROADMAP.md](docs/ROADMAP.md) | Live, autres thèmes, autres médias, détection de contradictions |
-| [docs/lots/](docs/lots/) | Une spec par lot de travail (A à E) |
-
-## Stack
-
-- **Backend** : Python 3.11+, FastAPI, Pydantic, SQLite, SDK Anthropic.
-- **LLM** : `claude-opus-5-5`, avec sorties structurées et outil serveur `web_search`.
-- **Extension** : Chrome Manifest V3 en JS natif, panneau latéral (side panel), sans build.
-- **Données** : API SDMX de la BDM INSEE (gratuite, sans clé). Les séries sont figées dans `data/referentiel/emploi.json`.
+| [docs/ROADMAP.md](docs/ROADMAP.md) | Live, autres thèmes, autres médias, contradictions |
+| [docs/lots/](docs/lots/) | Une spec par lot de travail |

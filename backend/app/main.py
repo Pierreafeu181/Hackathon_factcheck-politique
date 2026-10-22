@@ -11,9 +11,10 @@ from concurrent.futures import ThreadPoolExecutor
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from . import db, referentiel
+from . import check_api, db, referentiel
 from .extract import extract_claims
-from .models import AnalyzeRequest, AnalyzeResponse, ClaimResult, PoliticianProfile, Speech
+from .models import (AnalyzeRequest, AnalyzeResponse, CheckRequest, CheckResponse, ClaimResult, PoliticianProfile,
+                     Speech)
 from .transcript import fetch_youtube, from_raw_text, to_prompt_text, video_id_from_url
 from .verify import verify
 
@@ -81,6 +82,14 @@ def analyze(req: AnalyzeRequest):
 
 def _stats(results: list[ClaimResult]) -> dict[str, int]:
     return dict(Counter(r.verification.verdict.value for r in results))
+
+
+@app.post("/check", response_model=CheckResponse, response_model_exclude_none=True)
+def check(req: CheckRequest):
+    """Moteur d'analyse du serveur Node : mettre CHECKER_URL=http://localhost:8000/check dans server/.env"""
+    if not any(s.text.strip() for s in req.segments):
+        raise HTTPException(400, "Aucun texte à analyser.")
+    return check_api.check(req)
 
 
 @app.get("/videos/{video_id}/claims", response_model=AnalyzeResponse)

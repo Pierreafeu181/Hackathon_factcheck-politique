@@ -1,6 +1,20 @@
 # Architecture
 
-## Flux
+## Vue d'ensemble (après fusion)
+
+```
+extension/ (TS, Chrome)  ──POST /api/check──►  server/ (Node, 8790)  ──POST /check (CHECKER_URL)──►  backend/ (Python, 8000)
+  page, YouTube, sélection                       relais + veille RSS                                   extraction → vérification
+  onglet Veille            ◄──GET /api/watch──   podcasts → Deepgram                                   SQLite + profils
+```
+
+- L'**extension** lit le texte dans le navigateur (article via Readability, transcript YouTube via le panneau de transcription). C'est la voie fiable, parce que YouTube bloque les serveurs.
+- Le **serveur Node** relaie les demandes et fait la veille. Sans `CHECKER_URL`, il répond avec un moteur de démo.
+- Le **moteur Python** fait l'analyse. `POST /check` parle le format de `shared/contract.ts` ; `POST /analyze` et les autres routes ci-dessous sont l'API interne (tests, profils).
+
+Le schéma détaillé ci-dessous décrit le moteur Python. La partie « Chrome » décrit l'ancienne extension JS natif, remplacée par `extension/` en TypeScript, mais le flux du moteur est identique.
+
+## Flux du moteur Python
 
 ```
 ┌───────────── Chrome ─────────────┐        ┌──────────────────── backend (FastAPI) ────────────────────┐
@@ -26,6 +40,7 @@
 
 | Méthode | Route | Rôle |
 |---|---|---|
+| POST | `/check` | **Moteur pour le serveur Node** : `CheckRequest` → `CheckResponse` (`shared/contract.ts`). Stocke en base seulement si `politician` est fourni |
 | GET | `/health` | Vivant + nombre d'indicateurs chargés |
 | GET | `/indicators` | Liste des séries du référentiel (clé, libellé, dernier point) |
 | POST | `/analyze` | Body `AnalyzeRequest` → `AnalyzeResponse`. Mis en cache par `video_id` sauf `force: true` |

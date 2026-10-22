@@ -1,0 +1,7 @@
+[
+  { "id": "rmc-face-a-face", "name": "RMC – Face à Face", "kind": "podcast", "url": "https://feeds.simplecast.com/0H53ly_3" },
+  { "id": "rtl-invite-7h40", "name": "RTL – L'invité de 7h40", "kind": "podcast", "url": "https://feeds.audiomeans.fr/feed/bc8743c2-c669-4743-b58e-f689951a261b.xml" },
+  { "id": "sudradio-invite-politique", "name": "Sud Radio – L'invité politique", "kind": "podcast", "url": "https://www.sudradio.fr/programme/le-petit-dejeuner-politique-sudradio/poditunes" },
+  { "id": "yt-public-senat", "name": "Public Sénat (YouTube)", "kind": "youtube", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCTa1bPArjpvNMgSHAb_pflA" },
+  { "id": "yt-franceinfo", "name": "franceinfo (YouTube)", "kind": "youtube", "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCO6K_kkdP-lnSCiO3tPx7WA" }
+]
