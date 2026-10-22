@@ -22,5 +22,13 @@
   ],
   "host_permissions": [
     "<all_urls>"
-  ]
+  ],
+  "commands": {
+    "direct": {
+      "suggested_key": {
+        "default": "Alt+Shift+L"
+      },
+      "description": "Vérifier en direct le son de l'onglet"
+    }
+  }
 }

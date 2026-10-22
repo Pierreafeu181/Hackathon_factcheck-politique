@@ -265,9 +265,12 @@ async function analyzeNow(): Promise<void> {
 interface LiveSession {
   page: Page;
   ws: WebSocket;
-  stream: MediaStream;
-  audio: AudioContext;
+  /** Capture de l'onglet (tabCapture) : le panneau enregistre lui-même. */
+  stream?: MediaStream;
+  audio?: AudioContext;
   recorder?: MediaRecorder;
+  /** Repli : le lecteur de la page enregistre et envoie ses morceaux par ce port. */
+  port?: chrome.runtime.Port;
   msg: BotMessage;
   status: HTMLElement;
   feed: HTMLElement;
@@ -291,7 +294,7 @@ async function playbackTime(tabId: number): Promise<number> {
   return typeof result === "number" ? result : 0;
 }
 
-async function toggleLive(): Promise<void> {
+async function toggleLive(menuStreamId?: string): Promise<void> {
   if (live) return stopLive();
   if (!current) await refreshPage();
   const page = current;
@@ -301,19 +304,25 @@ async function toggleLive(): Promise<void> {
   }
   showTab("chat");
   const msg = botMessage("Je capte le son de l'onglet…", true);
-  let stream: MediaStream;
+  // 1) Capture de l'onglet : tout le son, mais Chrome l'exige après un clic sur l'icône depuis cet onglet.
+  // 2) Sinon, le lecteur <video> de la page : pas besoin de ce clic, marche sur la plupart des sites.
+  let stream: MediaStream | undefined;
+  let audio: AudioContext | undefined;
   try {
-    const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: page.tabId });
+    const streamId = menuStreamId ?? await chrome.tabCapture.getMediaStreamId({ targetTabId: page.tabId });
     stream = await navigator.mediaDevices.getUserMedia({
       audio: { mandatory: { chromeMediaSource: "tab", chromeMediaSourceId: streamId } },
     } as unknown as MediaStreamConstraints);
-  } catch (err) {
-    msg.fail(`Je n'ai pas pu capter le son de cet onglet (${(err as Error).message}). Cliquez sur l'icône Vérif'Pol depuis cet onglet, puis réessayez.`);
-    return;
+    // La capture coupe le son de l'onglet : on le renvoie vers les haut-parleurs.
+    audio = new AudioContext();
+    audio.createMediaStreamSource(stream).connect(audio.destination);
+  } catch {
+    const ok = await pageHasPlayer(page.tabId);
+    if (!ok) {
+      msg.fail("Je ne trouve pas de lecteur dans cette page. Faites un clic droit sur la page → « ● Vérifier en direct » (ou Alt+Maj+L) : Chrome m'autorise alors à capter tout le son de l'onglet.");
+      return;
+    }
   }
-  // La capture coupe le son de l'onglet : on le renvoie vers les haut-parleurs.
-  const audio = new AudioContext();
-  audio.createMediaStreamSource(stream).connect(audio.destination);
   const status = el("p", { className: "live-status" }, "Connexion au serveur…");
   const feed = el("div", { className: "live-feed" });
   const list = el("ol", { className: "claims" });
@@ -329,7 +338,63 @@ async function toggleLive(): Promise<void> {
   ws.onmessage = (e) => onLiveMessage(JSON.parse(String(e.data)));
   ws.onerror = () => { status.textContent = explain(new Error("Failed to fetch")); };
   ws.onclose = () => endLive();
-  stream.getAudioTracks()[0]?.addEventListener("ended", () => stopLive()); // onglet fermé
+  stream?.getAudioTracks()[0]?.addEventListener("ended", () => stopLive()); // onglet fermé
+}
+
+/** Frame qui contient le lecteur à écouter (de préférence celui qui joue, sinon le plus grand), y compris dans une iframe. */
+async function playerFrame(tabId: number): Promise<number | undefined> {
+  const results = await chrome.scripting.executeScript({
+    target: { tabId, allFrames: true },
+    func: () => Math.max(0, ...[...document.querySelectorAll<HTMLMediaElement>("video, audio")].map((m) =>
+      (m.paused ? 1 : 1_000_000) + m.clientWidth * m.clientHeight)),
+  }).catch(() => []);
+  const best = results.filter((r) => typeof r.result === "number" && r.result > 0).sort((a, b) => (b.result as number) - (a.result as number))[0];
+  return best?.frameId;
+}
+
+async function pageHasPlayer(tabId: number): Promise<boolean> {
+  return (await playerFrame(tabId)) !== undefined;
+}
+
+/**
+ * Repli sans tabCapture : dans la page, on enregistre le son du lecteur le plus grand (captureStream)
+ * et on renvoie les morceaux au panneau par un port. Le son reste audible. Ne marche pas sur les
+ * vidéos protégées (DRM) ou servies depuis un autre domaine sans CORS : elles donnent du silence.
+ */
+async function startPlayerRecorder(s: LiveSession): Promise<void> {
+  chrome.runtime.onConnect.addListener(function onPort(port) {
+    if (port.name !== "verifpol-live" || port.sender?.tab?.id !== s.page.tabId) return;
+    chrome.runtime.onConnect.removeListener(onPort);
+    s.port = port;
+    port.onMessage.addListener((m: { chunk?: number[]; error?: string }) => {
+      if (m.error) s.status.textContent = m.error;
+      else if (m.chunk && s.ws.readyState === WebSocket.OPEN) s.ws.send(new Uint8Array(m.chunk));
+    });
+    port.onDisconnect.addListener(() => { if (live === s) stopLive(); });
+  });
+  const frameId = await playerFrame(s.page.tabId);
+  await chrome.scripting.executeScript({
+    target: { tabId: s.page.tabId, frameIds: frameId !== undefined ? [frameId] : [0] },
+    func: () => {
+      const players = [...document.querySelectorAll<HTMLMediaElement>("video, audio")];
+      const media = players.find((m) => !m.paused) ?? players.sort((a, b) => (b.clientWidth * b.clientHeight) - (a.clientWidth * a.clientHeight))[0];
+      const port = chrome.runtime.connect({ name: "verifpol-live" });
+      const capture = (media as HTMLMediaElement & { captureStream?: () => MediaStream })?.captureStream;
+      if (!media || !capture) {
+        port.postMessage({ error: "Ce lecteur ne permet pas de capter le son. Cliquez sur l'icône Vérif'Pol depuis cet onglet, puis réessayez." });
+        return port.disconnect();
+      }
+      const tracks = capture.call(media).getAudioTracks();
+      const recorder = new MediaRecorder(new MediaStream(tracks), { mimeType: "audio/webm;codecs=opus" });
+      recorder.ondataavailable = async (e) => {
+        if (e.data.size) port.postMessage({ chunk: Array.from(new Uint8Array(await e.data.arrayBuffer())) });
+      };
+      port.onMessage.addListener((m: { stop?: boolean }) => { if (m.stop && recorder.state === "recording") recorder.stop(); });
+      port.onDisconnect.addListener(() => recorder.state === "recording" && recorder.stop());
+      recorder.start(250);
+      if (media.paused) void media.play().catch(() => undefined);
+    },
+  });
 }
 
 function onLiveMessage(m: { type: string; text?: string; start?: number; claims?: Claim[]; error?: string }): void {
@@ -337,9 +402,13 @@ function onLiveMessage(m: { type: string; text?: string; start?: number; claims?
   if (!s) return;
   if (m.type === "ready") {
     s.status.textContent = "J'écoute. Les verdicts arrivent toutes les ~45 s de parole.";
-    s.recorder = new MediaRecorder(s.stream, { mimeType: "audio/webm;codecs=opus" });
-    s.recorder.ondataavailable = (e) => { if (e.data.size && s.ws.readyState === WebSocket.OPEN) s.ws.send(e.data); };
-    s.recorder.start(250);
+    if (s.stream) {
+      s.recorder = new MediaRecorder(s.stream, { mimeType: "audio/webm;codecs=opus" });
+      s.recorder.ondataavailable = (e) => { if (e.data.size && s.ws.readyState === WebSocket.OPEN) s.ws.send(e.data); };
+      s.recorder.start(250);
+    } else {
+      void startPlayerRecorder(s).catch((err) => { s.status.textContent = `Capture impossible : ${explain(err)}`; });
+    }
   } else if (m.type === "transcript" && m.text) {
     s.feed.append(el("span", {}, m.text));
     while (s.feed.childElementCount > 3) s.feed.firstElementChild!.remove();
@@ -362,8 +431,9 @@ function stopLive(): void {
   if (!s) return;
   s.status.textContent = "J'arrête et je vérifie le dernier passage…";
   s.recorder?.state === "recording" && s.recorder.stop();
-  s.stream.getTracks().forEach((t) => t.stop());
-  void s.audio.close();
+  s.port?.postMessage({ stop: true });
+  s.stream?.getTracks().forEach((t) => t.stop());
+  if (s.audio && s.audio.state !== "closed") void s.audio.close();
   if (s.ws.readyState === WebSocket.OPEN) s.ws.send(JSON.stringify({ type: "stop" }));
   else endLive();
 }
@@ -374,8 +444,9 @@ function endLive(): void {
   if (!s) return;
   live = undefined;
   setLiveButton(false);
-  s.stream.getTracks().forEach((t) => t.stop());
-  if (s.audio.state !== "closed") void s.audio.close();
+  s.port?.disconnect();
+  s.stream?.getTracks().forEach((t) => t.stop());
+  if (s.audio && s.audio.state !== "closed") void s.audio.close();
   const n = s.claims.length;
   s.status.classList.remove("live-status");
   s.status.textContent = `Direct terminé · ${n} affirmation${n > 1 ? "s" : ""} vérifiée${n > 1 ? "s" : ""}.`;
@@ -870,6 +941,19 @@ function showTab(name: "chat" | "watch"): void {
   }
 }
 
+/** Direct demandé par clic droit ou Alt+Maj+L : le service worker a déjà obtenu l'identifiant du flux. */
+async function consumePendingLive(): Promise<void> {
+  const { pendingLive } = (await chrome.storage.session.get("pendingLive")) as {
+    pendingLive?: { tabId: number; streamId?: string; error?: string; at: number };
+  };
+  if (!pendingLive || Date.now() - pendingLive.at > 30_000) return;
+  await chrome.storage.session.remove("pendingLive");
+  if (live) stopLive();
+  await refreshPage();
+  if (current?.tabId !== pendingLive.tabId) return;
+  void toggleLive(pendingLive.streamId);
+}
+
 async function consumePendingSelection(): Promise<void> {
   const { pendingSelection } = (await chrome.storage.session.get("pendingSelection")) as {
     pendingSelection?: { text: string; url: string; title: string };
@@ -916,6 +1000,7 @@ async function init(): Promise<void> {
 
   chrome.storage.session.onChanged.addListener((changes) => {
     if (changes.pendingSelection?.newValue) void consumePendingSelection();
+    if (changes.pendingLive?.newValue) void consumePendingLive();
   });
 
   // YouTube change d'URL sans recharger la page : Chrome le signale via onUpdated.
@@ -927,7 +1012,7 @@ async function init(): Promise<void> {
   hello.body.append(el("ul", { className: "hello" },
     el("li", {}, "Ouvrez une vidéo YouTube : je la vérifie toute seule."),
     el("li", {}, "Un article de presse, un TikTok, un Reel, une vidéo X : pareil."),
-    el("li", {}, "Un direct, la TV, une vidéo réservée aux abonnés : « ● Direct » écoute le son de l'onglet."),
+    el("li", {}, "Un direct, la TV, une vidéo réservée aux abonnés : « ● Direct », ou clic droit → « Vérifier en direct »."),
     el("li", {}, "Une phrase précise : sélectionnez-la, puis clic droit."),
     el("li", {}, "Ensuite, posez vos questions ci-dessous.")));
   setSuggestions([]);
@@ -935,6 +1020,7 @@ async function init(): Promise<void> {
   await initSession();
   await consumePendingSelection();
   await refreshPage();
+  await consumePendingLive();
 }
 
 void init();
