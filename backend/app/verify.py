@@ -1,15 +1,16 @@
 """Lot C — Routeur de vérification.
 
-1. Référentiel officiel (data/referentiel) : verdict calculé en code, le LLM ne fait que rédiger.
-2. Sinon, recherche web par le LLM (confiance plafonnée à 0,7).
-3. Sinon, `inverifiable`.
+1. Fact-check déjà publié par une rédaction (Google Fact Check Tools) : on reprend son verdict.
+2. Référentiel officiel (data/referentiel) : verdict calculé en code, le LLM ne fait que rédiger.
+3. Sinon, recherche web par le LLM (confiance plafonnée à 0,7).
+4. Sinon, `inverifiable`.
 """
 from __future__ import annotations
 
 import json
 import logging
 
-from . import llm, referentiel
+from . import factcheck, llm, referentiel
 from .models import ExplanationText, ExtractedClaim, Method, Verdict, Verification, WebVerification
 
 log = logging.getLogger(__name__)
@@ -18,6 +19,13 @@ WEB_CONFIDENCE_CAP = 0.7
 
 
 def verify(claim: ExtractedClaim, speech_date: str | None = None, use_web: bool = True) -> Verification:
+    try:
+        published = factcheck.check(claim)
+    except factcheck.FactCheckError as e:
+        log.warning("Google Fact Check indisponible : %s", e)
+        published = None
+    if published is not None:
+        return published
     result = referentiel.check(claim)
     if result is not None:
         return _from_referentiel(claim, result)

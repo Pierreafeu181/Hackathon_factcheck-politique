@@ -57,6 +57,7 @@ class Verdict(str, Enum):
 class Method(str, Enum):
     referentiel = "referentiel"  # comparé à une série officielle figée (data/referentiel)
     web = "web"                  # recherche web par le LLM
+    factcheck = "factcheck"      # fact-check déjà publié par une rédaction (Google Fact Check Tools)
     aucun = "aucun"
 
 

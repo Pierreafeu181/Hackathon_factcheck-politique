@@ -100,6 +100,26 @@ def main() -> None:
     assert db.get_speech("yt:dQw4w9WgXcQ") is not None  # stocké car politician fourni
     print("/check :", [(c.verdict, c.start) for c in resp.claims])
 
+    # Google Fact Check : réponse de l'API remplacée par une réponse factice
+    from . import factcheck
+
+    for rating, expected in [("Faux", Verdict.faux), ("Inexact", Verdict.faux), ("Plutôt vrai", Verdict.plutot_vrai),
+                             ("Partiellement faux", Verdict.trompeur), ("Manque de contexte", Verdict.trompeur),
+                             ("Imprécis", Verdict.imprecis), ("Vrai", Verdict.vrai), ("Satire", None)]:
+        assert factcheck.rating_to_verdict(rating) == expected, (rating, factcheck.rating_to_verdict(rating))
+    fake_fc = [{"text": "Le chômage a baissé de deux points depuis 2017", "claimant": "Personne Démo",
+                "claimReview": [{"publisher": {"name": "AFP Factuel", "site": "factuel.afp.com"},
+                                 "url": "https://factuel.afp.com/demo", "title": "Chômage depuis 2017",
+                                 "reviewDate": "2024-05-02T00:00:00Z", "textualRating": "Partiellement faux",
+                                 "languageCode": "fr"}]}]
+    v = factcheck.check(claim(claim="Le chômage a baissé de 2 points depuis 2017", quote="le chômage a baissé"),
+                        fetch=lambda q: fake_fc)
+    assert v is not None and v.verdict == Verdict.trompeur and v.method == Method.factcheck, v
+    assert v.sources[0].url == "https://factuel.afp.com/demo" and "AFP Factuel" in v.explanation, v
+    assert factcheck.check(claim(claim="La dette publique dépasse 3 000 milliards d'euros"),
+                           fetch=lambda q: fake_fc) is None
+    print("fact check :", v.verdict.value, "—", v.explanation)
+
     print("\nOK — tous les autotests passent")
 
 

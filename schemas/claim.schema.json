@@ -181,6 +181,7 @@
           "enum": [
             "referentiel",
             "web",
+            "factcheck",
             "aucun"
           ],
           "title": "Method",
@@ -662,6 +663,7 @@
           "enum": [
             "referentiel",
             "web",
+            "factcheck",
             "aucun"
           ],
           "title": "Method",
