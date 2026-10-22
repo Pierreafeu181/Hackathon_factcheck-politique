@@ -4,3 +4,4 @@ dist/
 server/data/
 .DS_Store
 .playwright-mcp/
+.superpowers/
