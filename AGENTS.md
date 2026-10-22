@@ -110,7 +110,7 @@ python scripts/fetch_insee.py
 - [x] Serveur Node : relais `/api/check`, moteur de démo, veille RSS, transcription Deepgram des podcasts
 - [x] Moteur Python : référentiel de 15 séries INSEE/DARES, comparaison déterministe, extraction, repli web, SQLite, profils
 - [x] `POST /check` sur le moteur Python, compatible `shared/contract.ts` (autotest du mapping OK)
-- [ ] **Brancher et tester de bout en bout** : `CHECKER_URL=http://localhost:8000/check`, avec une vraie clé Anthropic (jamais testé avec le LLM)
+- [x] **Brancher et tester de bout en bout** : `CHECKER_URL=http://localhost:8000/check` avec une vraie clé Anthropic. Testé le 22/10 : fixture de démo (3 verdicts justes, 7 s avec `LLM_MODEL=claude-sonnet-5-5`, 12 s avec Opus 5.5) et veille podcasts (RMC, RTL, Sud Radio : Deepgram → moteur → 13 affirmations sourcées). Reste à tester le panneau de l'extension avec le vrai Claude
 - [ ] Profils dans l'extension : l'onglet Profils de l'ancienne extension n'a pas été porté (API `GET /politicians` prête) — Lot A/D
 - [x] Nom de l'orateur : `politician` et `date` ajoutés à `CheckRequest` dans `contract.ts` ; l'extension devine l'orateur depuis le titre (corrigeable)
 - [x] Panneau en mode chat : vérification automatique des vidéos YouTube, chat (`/api/chat` → `/chat`), « Pourquoi ? » par carte, carte en cours surlignée, cache des analyses côté Node — Lot A
