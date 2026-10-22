@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <title>Vérif'Pol</title>
+    <link rel="stylesheet" href="sidepanel.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Vérif'Pol</h1>
+      <nav>
+        <button class="tab active" data-tab="page">Cette page</button>
+        <button class="tab" data-tab="watch">Veille</button>
+      </nav>
+    </header>
+
+    <main>
+      <section id="tab-page">
+        <button id="analyze" class="primary">Vérifier cette page</button>
+        <p class="hint">Astuce : sélectionnez une phrase, clic droit → « Vérifier cette phrase ».</p>
+        <p id="page-status" class="status"></p>
+        <ol id="claims" class="claims"></ol>
+      </section>
+
+      <section id="tab-watch" hidden>
+        <div class="row">
+          <button id="refresh">Relancer la veille</button>
+          <span id="watch-meta" class="meta"></span>
+        </div>
+        <p id="watch-status" class="status"></p>
+        <ol id="episodes" class="episodes"></ol>
+      </section>
+    </main>
+
+    <footer>
+      <label>
+        Serveur
+        <input id="backend" type="url" spellcheck="false" />
+      </label>
+    </footer>
+
+    <script src="sidepanel.js"></script>
+  </body>
+</html>

@@ -1,0 +1,57 @@
+:root {
+  --bg: #fafaf9;
+  --card: #ffffff;
+  --text: #1c1917;
+  --muted: #78716c;
+  --border: #e7e5e4;
+  --accent: #1d4ed8;
+  --vrai: #15803d;
+  --trompeur: #c2410c;
+  --faux: #b91c1c;
+  --invérifiable: #57534e;
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: var(--text);
+  background: var(--bg);
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; display: flex; flex-direction: column; min-height: 100vh; }
+
+header { padding: 12px 14px 0; border-bottom: 1px solid var(--border); background: var(--card); position: sticky; top: 0; }
+h1 { margin: 0 0 8px; font-size: 17px; }
+nav { display: flex; gap: 4px; }
+.tab { border: 0; background: none; padding: 8px 10px; cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent; font: inherit; }
+.tab.active { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+
+main { flex: 1; padding: 14px; }
+button { font: inherit; cursor: pointer; border: 1px solid var(--border); background: var(--card); border-radius: 6px; padding: 6px 10px; }
+button:disabled { opacity: 0.5; cursor: default; }
+.primary { width: 100%; background: var(--accent); color: white; border: 0; padding: 10px; font-weight: 600; }
+.hint, .meta { color: var(--muted); font-size: 12px; }
+.status { color: var(--muted); }
+.status.error { color: var(--faux); }
+.row { display: flex; align-items: center; gap: 8px; }
+
+.claims, .episodes { list-style: none; padding: 0; margin: 12px 0 0; display: flex; flex-direction: column; gap: 10px; }
+.claim, .episode { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+.claim-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.verdict { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; color: white; padding: 2px 8px; border-radius: 999px; }
+.verdict.vrai { background: var(--vrai); }
+.verdict.trompeur { background: var(--trompeur); }
+.verdict.faux { background: var(--faux); }
+.verdict.invérifiable { background: var(--invérifiable); }
+.seek { border: 0; background: none; color: var(--accent); padding: 0; font-variant-numeric: tabular-nums; }
+.quote { margin: 8px 0 4px; font-style: italic; }
+.explanation { margin: 0; color: var(--muted); }
+.sources { margin: 6px 0 0; padding-left: 16px; font-size: 13px; }
+.official { font-size: 11px; color: var(--vrai); font-weight: 600; margin-left: 4px; }
+.demo { background: #fef3c7; color: #92400e; border-radius: 6px; padding: 6px 8px; font-size: 12px; }
+
+.episode-title { font-weight: 600; margin: 2px 0; }
+.episode .meta { display: flex; justify-content: space-between; }
+.episode details { margin-top: 6px; }
+.episode .claims { margin-top: 8px; }
+
+footer { padding: 8px 14px; border-top: 1px solid var(--border); font-size: 12px; color: var(--muted); }
+footer label { display: flex; gap: 8px; align-items: center; }
+footer input { flex: 1; font: inherit; border: 1px solid var(--border); border-radius: 4px; padding: 3px 6px; }
