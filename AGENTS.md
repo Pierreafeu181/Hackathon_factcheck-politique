@@ -72,7 +72,7 @@ docs/                    ← plan, architecture, contrat, méthodologie, sources
 cd backend
 python -m venv .venv && source .venv/bin/activate      # Windows : .venv\Scripts\activate
 pip install -r requirements.txt
-cp .env.example .env                                   # ANTHROPIC_API_KEY
+cp .env.example .env                                   # ANTHROPIC_API_KEY (+ DATABASE_URL pour Postgres/Aiven)
 python -m app.selftest                                 # autotests sans clé API (référentiel, DB, /check)
 uvicorn app.main:app --reload --port 8000              # http://localhost:8000/docs
 
@@ -114,6 +114,8 @@ python scripts/fetch_insee.py
 - [ ] Profils dans l'extension : l'onglet Profils de l'ancienne extension n'a pas été porté (API `GET /politicians` prête) — Lot A/D
 - [x] Nom de l'orateur : `politician` et `date` ajoutés à `CheckRequest` dans `contract.ts` ; l'extension devine l'orateur depuis le titre (corrigeable)
 - [x] Panneau en mode chat : vérification automatique des vidéos YouTube, chat (`/api/chat` → `/chat`), « Pourquoi ? » par carte, carte en cours surlignée, cache des analyses côté Node — Lot A
+- [x] Base PostgreSQL : `db.py` bascule sur Postgres si `DATABASE_URL` est défini (SQLite sinon), testé sur Postgres 17 — Lot D
+- [ ] Créer le service PostgreSQL sur Aiven et mettre son Service URI dans `backend/.env` (`DATABASE_URL`)
 - [ ] Google Fact Check Tools en première étape de vérification — Lot C
 - [ ] Itérer les prompts sur 2-3 vraies vidéos — Lots B/C
 - [ ] Choisir et mettre en cache les vidéos de démo — Lot E

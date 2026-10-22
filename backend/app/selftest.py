@@ -7,6 +7,8 @@ import os
 import tempfile
 
 os.environ.setdefault("DB_PATH", os.path.join(tempfile.mkdtemp(), "selftest.db"))
+# Jamais la base de backend/.env : SQLite jetable, sauf SELFTEST_DATABASE_URL (Postgres vide et jetable).
+os.environ["DATABASE_URL"] = os.environ.get("SELFTEST_DATABASE_URL", "")
 
 from . import db, referentiel  # noqa: E402
 from .models import (ClaimResult, ClaimType, ExtractedClaim, Method, Speaker, Speech, TranscriptSegment,  # noqa: E402

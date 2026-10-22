@@ -59,7 +59,7 @@ Tous les schémas sont dans `backend/app/models.py`, et la doc interactive est s
 | **Verdict calculé en code** | Le jury et les utilisateurs doivent pouvoir auditer, et le LLM peut se tromper en arithmétique ou halluciner un chiffre |
 | Recherche web en **repli** avec confiance ≤ 0,7 | Couvre les affirmations hors référentiel, avec moins de garanties |
 | Sources web **filtrées** sur les URL réellement vues par `web_search` | Empêche les URL inventées |
-| SQLite | Zéro installation. Schéma compatible Postgres/Supabase pour la suite |
+| SQLite / PostgreSQL | SQLite par défaut (zéro installation) ; PostgreSQL (Aiven) dès que `DATABASE_URL` est défini, même schéma |
 | Side panel MV3 en JS natif | Pas de build, chargement instantané |
 | Un seul module LLM (`llm.py`) | Modèle, fallbacks et effort réglés en un seul endroit |
 
