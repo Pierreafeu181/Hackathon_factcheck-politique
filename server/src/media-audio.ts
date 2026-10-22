@@ -50,6 +50,9 @@ export async function downloadAudio(rawUrl: string, maxSeconds = 7200): Promise<
   try {
     const args = [
       "--ignore-config", "--no-playlist", "--quiet", "--no-warnings",
+      // Extracteurs dédiés aux plateformes uniquement : pas d'extracteur générique, qui suivrait
+      // n'importe quelle redirection ou vidéo intégrée vers une autre adresse.
+      "--use-extractors", "default,-generic",
       // piste audio seule si elle existe, sinon la plus petite vidéo avec du son (Dailymotion, X…)
       "-f", "bestaudio/worst[acodec!=none]/worst",
       "--max-filesize", `${MAX_BYTES}`,
