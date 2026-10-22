@@ -1,7 +1,6 @@
 import { readFileSync } from "node:fs";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
-import { cors } from "hono/cors";
 import type { CheckRequest } from "../../shared/contract.ts";
 import { check } from "./checker.ts";
 import type { Feed } from "./rss.ts";
@@ -25,7 +24,7 @@ const watcher = new Watcher({
 });
 
 const app = new Hono();
-app.use("/api/*", cors());
+// Pas de CORS : l'extension a les droits d'accès au serveur, les sites web non.
 
 app.get("/api/health", (c) => c.json({ ok: true, checker: process.env.CHECKER_URL ? "équipe" : "démo" }));
 
@@ -46,7 +45,7 @@ app.post("/api/watch/refresh", (c) => {
   return c.json({ ok: true });
 });
 
-serve({ fetch: app.fetch, port }, () => {
+serve({ fetch: app.fetch, port, hostname: process.env.HOST ?? "127.0.0.1" }, () => {
   console.log(`Serveur prêt sur http://localhost:${port}`);
   console.log(`Analyse : ${process.env.CHECKER_URL ? process.env.CHECKER_URL : "moteur de démo"}`);
   console.log(`Transcription Deepgram : ${process.env.DEEPGRAM_API_KEY ? "activée" : "désactivée (pas de DEEPGRAM_API_KEY)"}`);

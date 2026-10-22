@@ -72,7 +72,7 @@ function claimCard(claim: Claim, tabId: number | undefined): HTMLElement {
     head.append(seek);
   }
   const sources = el("ul", { className: "sources" },
-    ...claim.sources.filter((s) => /^https?:\/\//.test(s.url)).map((s) =>
+    ...claim.sources.filter((s) => isWebUrl(s.url)).map((s) =>
       el("li", {}, el("a", { href: s.url, target: "_blank", rel: "noopener" }, s.label), ...(s.official ? [el("span", { className: "official" }, "source officielle")] : [])),
     ),
   );
@@ -84,11 +84,18 @@ async function seekVideo(tabId: number, seconds: number): Promise<void> {
   await chrome.scripting.executeScript({
     target: { tabId },
     func: (t: number) => {
-      const video = document.querySelector("video");
-      if (video) {
-        video.currentTime = t;
-        void video.play();
-      }
+      // Pendant une pub YouTube, ou juste après, le lecteur ignore le saut :
+      // on réessaie jusqu'à ce que la vidéo soit vraiment au bon moment (3 min max).
+      const trySeek = (attempts: number) => {
+        const video = document.querySelector("video");
+        if (video && !document.querySelector(".ad-showing")) {
+          if (Math.abs(video.currentTime - t) < 2) return;
+          video.currentTime = t;
+          void video.play();
+        }
+        if (attempts > 0) setTimeout(() => trySeek(attempts - 1), 500);
+      };
+      trySeek(360);
     },
     args: [seconds],
   });
@@ -117,14 +124,16 @@ async function loadWatch(): Promise<void> {
   }
 }
 
+const isWebUrl = (url: string) => /^https?:\/\//.test(url);
+
 function episodeCard(ep: WatchEpisode): HTMLElement {
   const date = new Date(ep.publishedAt).toLocaleString("fr-FR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
   const card = el("li", { className: "episode" },
     el("div", { className: "meta" }, el("span", {}, ep.feedName), el("span", {}, `${date} · ${STATUS_LABEL[ep.status]}`)),
-    el("div", { className: "episode-title" }, el("a", { href: ep.url, target: "_blank", rel: "noopener" }, ep.title)),
+    el("div", { className: "episode-title" }, isWebUrl(ep.url) ? el("a", { href: ep.url, target: "_blank", rel: "noopener" }, ep.title) : ep.title),
   );
   if (ep.error) card.append(el("p", { className: "status error" }, ep.error));
-  if (ep.kind === "youtube") {
+  if (ep.kind === "youtube" && isWebUrl(ep.url)) {
     const open = el("button", {}, "Ouvrir et vérifier");
     open.addEventListener("click", () => openAndAnalyze(ep.url));
     card.append(open);
