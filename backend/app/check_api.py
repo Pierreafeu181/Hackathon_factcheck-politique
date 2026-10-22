@@ -15,7 +15,7 @@ from . import db
 from .extract import extract_claims
 from .models import (Category, CheckClaim, CheckRequest, CheckResponse, ClaimResult, Evidence, ExtractedClaim,
                      Method, Speech, TranscriptSegment, Verdict, Verification)
-from .transcript import to_prompt_text, video_id_from_url
+from .transcript import fetch_audio_segments, to_prompt_text, video_id_from_url
 from .verify import verify
 
 MAX_CLAIMS = int(os.getenv("CHECK_MAX_CLAIMS", "15"))
@@ -62,14 +62,17 @@ def to_contract(claim_id: str, claim: ExtractedClaim, v: Verification, with_star
 
 def check(req: CheckRequest) -> CheckResponse:
     with_start = any(s.start is not None for s in req.segments)
-    segments = [TranscriptSegment(start=s.start or 0.0, text=s.text) for s in req.segments if s.text.strip()]
+    segments = [TranscriptSegment(start=s.start or 0.0, text=s.text, speaker=s.speaker)
+                for s in req.segments if s.text.strip()]
+    video_id = video_id_from_url(req.source.url) if req.source.kind == "youtube" else None
+    if not segments and video_id:  # vidéo sans transcription YouTube : on transcrit l'audio (ElevenLabs)
+        segments, with_start = fetch_audio_segments(video_id), True
     speaker = req.politician.name if req.politician else "l'orateur principal (nom non fourni)"
 
     claims = extract_claims(to_prompt_text(segments), speaker, CATEGORIES, req.date)[:MAX_CLAIMS]
     with ThreadPoolExecutor(max_workers=6) as pool:
         verifications = list(pool.map(lambda c: verify(c, req.date), claims))
 
-    video_id = video_id_from_url(req.source.url) if req.source.kind == "youtube" else None
     speech_id = f"yt:{video_id}" if video_id else "url:" + hashlib.sha1(req.source.url.encode()).hexdigest()[:12]
     ids = [f"{speech_id}#{i}" for i in range(len(claims))]
 

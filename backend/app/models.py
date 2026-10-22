@@ -138,6 +138,7 @@ class TranscriptSegment(BaseModel):
     start: float
     duration: float = 0.0
     text: str
+    speaker: Optional[str] = None  # voix détectée par la diarisation (transcription audio)
 
 
 class AnalyzeRequest(BaseModel):

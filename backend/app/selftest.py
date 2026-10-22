@@ -120,6 +120,23 @@ def main() -> None:
                            fetch=lambda q: fake_fc) is None
     print("fact check :", v.verdict.value, "—", v.explanation)
 
+    # Transcription audio : regroupement des mots ElevenLabs par voix, pause et durée
+    from .transcript import words_to_segments
+
+    def w(text, start, end, spk, kind="word"):
+        return {"text": text, "start": start, "end": end, "speaker_id": spk, "type": kind}
+
+    words = [w("Le", 0.0, 0.2, "speaker_0"), w(" ", 0.2, 0.2, "speaker_0", "spacing"), w("chômage", 0.2, 0.7, "speaker_0"),
+             w(" ", 0.7, 0.7, "speaker_0", "spacing"), w("baisse.", 0.7, 1.1, "speaker_0"),
+             w("(applaudissements)", 1.2, 1.5, None, "audio_event"),
+             w("Faux", 1.6, 1.9, "speaker_1"), w(" ", 1.9, 1.9, "speaker_1", "spacing"), w("!", 1.9, 2.0, "speaker_1"),
+             w("Ensuite", 4.0, 4.4, "speaker_1")]
+    segs = words_to_segments(words, offset=100.0)
+    assert [(s.start, s.speaker, s.text) for s in segs] == [
+        (100.0, "Voix 1", "Le chômage baisse."), (101.6, "Voix 2", "Faux !"), (104.0, "Voix 2", "Ensuite")], segs
+    assert "(Voix 1) Le chômage baisse." in to_prompt_text(segs)
+    print("audio :", [(s.start, s.speaker, s.text) for s in segs])
+
     print("\nOK — tous les autotests passent")
 
 

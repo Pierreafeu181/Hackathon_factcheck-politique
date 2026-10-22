@@ -365,6 +365,18 @@
             "text": {
               "title": "Text",
               "type": "string"
+            },
+            "speaker": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Speaker"
             }
           },
           "required": [
