@@ -91,20 +91,41 @@ def _gemini():
     return _gemini_client
 
 
+FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-3.5-flash-lite")
+_fallback_until = 0.0
+
+
 def _gemini_call(contents, config):
-    """generate_content avec relance sur quota (429) et surcharge (503) : l'offre gratuite est plafonnée par minute."""
+    """generate_content avec relance sur quota (429) et surcharge (503) : l'offre gratuite est plafonnée par minute.
+    Après deux surcharges, bascule sur le modèle de secours (moins demandé)."""
+    global _fallback_until
     from google.genai import errors
-    delay = 5.0
+    delay, overloaded = 5.0, 0
+    # Bascule « collante » quelques minutes : une boucle d'outils garde le même modèle d'un appel à l'autre.
+    model = FALLBACK_MODEL if time.time() < _fallback_until else MODEL
     for attempt in range(6):
         try:
             with _gemini_slots:
-                return _gemini().models.generate_content(model=MODEL, contents=contents, config=config)
+                return _gemini().models.generate_content(model=model, contents=contents, config=config)
         except errors.APIError as e:
             if e.code not in (429, 500, 503) or attempt == 5:
                 raise
+            if e.code == 503:
+                overloaded += 1
+                if overloaded >= 2 and model != FALLBACK_MODEL:
+                    log.warning("%s surchargé, bascule sur %s pour 5 min", model, FALLBACK_MODEL)
+                    model, _fallback_until = FALLBACK_MODEL, time.time() + 300
+                    continue
             wait = delay
-            if m := re.search(r"retry in ([\d.]+)s|retryDelay['\": ]+(\d+)", str(e)):
-                wait = float(m.group(1) or m.group(2)) + 1
+            if m := re.search(r"retryDelay['\": ]+(\d+)", str(e)):
+                wait = float(m.group(1)) + 1
+            if e.code == 429 and wait > 120:
+                # Quota du jour épuisé (offre gratuite) : inutile d'attendre, on tente le modèle de secours.
+                if model == FALLBACK_MODEL:
+                    raise
+                log.warning("quota du jour épuisé sur %s, bascule sur %s", model, FALLBACK_MODEL)
+                model, _fallback_until = FALLBACK_MODEL, time.time() + 3600
+                continue
             log.warning("Gemini %s, nouvel essai dans %.0f s", e.code, wait)
             time.sleep(min(wait, 60))
             delay = min(delay * 2, 60)
