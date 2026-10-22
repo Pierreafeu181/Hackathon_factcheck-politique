@@ -65,6 +65,13 @@ def main() -> None:
     txt = to_prompt_text([TranscriptSegment(start=0, text="a"), TranscriptSegment(start=25, text="b")])
     assert txt == "[0s] a\n[25s] b", txt
 
+    # bornes : « plus de X » / « moins de X »
+    young = referentiel.load()["taux_chomage_moins_25"].obs[-1][1]
+    assert referentiel.check(claim(indicator="taux_chomage_moins_25", value=young - 1.5, unit=Unit.pourcent, bound="min")).verdict == Verdict.vrai
+    assert referentiel.check(claim(indicator="taux_chomage_moins_25", value=young - 1.5, unit=Unit.pourcent)).verdict != Verdict.vrai
+    assert referentiel.check(claim(indicator="taux_chomage_moins_25", value=young - 1.5, unit=Unit.pourcent, bound="max")).verdict == Verdict.faux
+    print("bornes : « plus de » / « moins de » OK")
+
     # API INSEE en direct : lecture du XML SDMX (sans réseau)
     from . import insee_api
     xml = (b'<m:Data xmlns:m="urn:x"><m:DataSet><Series IDBANK="010777608" TITLE_FR="Dette - en point de PIB" '
