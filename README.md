@@ -50,3 +50,4 @@ Au premier lancement, seul le dernier épisode de chaque flux est traité (`MAX_
 ## Sources de données
 
 - **INSEE, API BDM** : `https://api.insee.fr/series/BDM/V1/…`, sans clé, 30 appels/min/IP, format SDMX (XML). Exemple : `/data/SERIES_BDM/001688527?lastNObservations=1` (taux de chômage BIT).
+- **Google Fact Check Tools** : `https://factchecktools.googleapis.com/v1alpha1/claims:search?query=…&languageCode=fr&key=…`, gratuit avec une clé Google Cloud. Renvoie les fact-checks déjà publiés (AFP Factuel, Les Décodeurs, Libé CheckNews…) avec leur verdict. À interroger en premier : si un journaliste a déjà vérifié la phrase, on affiche son verdict. [Présentation](https://newsinitiative.withgoogle.com/resources/trainings/google-fact-check-tools/)
