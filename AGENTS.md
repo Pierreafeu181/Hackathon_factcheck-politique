@@ -42,7 +42,8 @@ backend/                 ← MOTEUR D'ANALYSE Python / FastAPI, port 8000
   app/extract.py         ← LLM : texte → affirmations structurées
   app/verify.py          ← routeur de vérification (référentiel → web)
   app/referentiel.py     ← séries officielles + comparaison DÉTERMINISTE
-  app/llm.py             ← client Claude unique (modèle, fallbacks, helpers)
+  app/llm.py             ← client Claude unique (modèle, fallbacks, boucle d'outils web + INSEE)
+  app/insee_api.py       ← outils Claude : API BDM de l'INSEE en direct (thèmes → séries → observations)
   app/db.py              ← SQLite (politicians, speeches, claims, verifications) + profils
   app/prompts/*.md       ← prompts système (à itérer ici, pas dans le code)
   app/selftest.py        ← autotests sans clé API
@@ -116,6 +117,7 @@ python scripts/fetch_insee.py
 - [x] Panneau en mode chat : vérification automatique des vidéos YouTube, chat (`/api/chat` → `/chat`), « Pourquoi ? » par carte, carte en cours surlignée, cache des analyses côté Node — Lot A
 - [x] Base PostgreSQL : `db.py` bascule sur Postgres si `DATABASE_URL` est défini (SQLite sinon), testé sur Postgres 17 — Lot D
 - [ ] Créer le service PostgreSQL sur Aiven et mettre son Service URI dans `backend/.env` (`DATABASE_URL`)
+- [x] Outils INSEE en direct pour Claude (`insee_api.py`) : vérification web et chat lisent les séries officielles hors référentiel (inflation, dette, PIB…) — Lots A/C
 - [ ] Google Fact Check Tools en première étape de vérification — Lot C
 - [ ] Itérer les prompts sur 2-3 vraies vidéos — Lots B/C
 - [ ] Choisir et mettre en cache les vidéos de démo — Lot E
@@ -134,6 +136,7 @@ Quand tu termines une tâche, **coche-la ici** dans ton commit.
 - **Verdicts : 4 côté contrat, 6 côté Python.** Le mapping est dans `check_api.py` : plutôt vrai → `vrai`, imprécis → `trompeur`. La nuance est préfixée dans l'explication, suivie de « Correction : … ». Le contrat écrit **`invérifiable` avec accent** ; le Python interne écrit `inverifiable` sans accent.
 - **YouTube transcript** : le serveur (Python ou Node) est souvent bloqué par YouTube. La voie normale, c'est l'extension qui lit la transcription dans la page (`extension/src/extract.ts`). `backend/app/transcript.py` ne sert qu'à `/analyze` en local.
 - **Sous-titres auto** : pas de ponctuation, et des chiffres parfois écrits en lettres (« sept virgule cinq pour cent »). C'est le prompt d'extraction qui normalise.
+- **API INSEE en direct** (`insee_api.py`) : 30 appels/min (espacés automatiquement, cache 6 h). Les très gros thèmes (indices de prix) renvoient HTTP 413 : passer par les idbanks de `FREQUENT`. Le référentiel figé reste prioritaire, car son verdict est calculé en code ; avec l'outil en direct, c'est Claude qui compare (méthode `web`, confiance plafonnée à 0,7).
 - **Chômage : BIT ≠ France Travail.** Le « taux de chômage » (INSEE, BIT) n'est pas le « nombre de demandeurs d'emploi » (France Travail, cat. A/B/C). Une confusion entre les deux donne `imprecis`, pas `faux`.
 - **France entière vs hors Mayotte**, **CVS** : à toujours préciser dans la note des sources.
 - **Périodes** : « depuis 2017 » = moyenne annuelle 2017 comparée au dernier point publié (voir `docs/METHODOLOGIE.md`).

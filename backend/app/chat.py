@@ -46,33 +46,21 @@ def answer(req: ChatRequest) -> ChatResponse:
               .replace("{{INDICATORS}}", referentiel.indicators_for_prompt())
               .replace("{{CONTEXT}}", _context(req)))
     messages: list[dict] = [m.model_dump() for m in req.messages[-MAX_TURNS:]]
+    blocks, insee_seen = llm.run_with_tools(system, messages, effort="low", max_tokens=4000, max_steps=6)
     text_parts: list[str] = []
-    sources: dict[str, ChatSource] = {}
-    for _ in range(4):
-        response = llm.client().beta.messages.create(
-            model=llm.MODEL,
-            max_tokens=4000,
-            betas=[llm.FALLBACK_BETA],
-            fallbacks="default",
-            system=system,
-            messages=messages,
-            tools=[llm.WEB_SEARCH_TOOL],
-            output_config={"effort": "low"},
-        )
-        if response.stop_reason == "refusal":
-            raise llm.LLMRefusal(getattr(response.stop_details, "explanation", "refus"))
-        for block in response.content:
-            if block.type != "text":
-                continue
-            text_parts.append(block.text)
-            # Seules les pages réellement citées par la recherche web deviennent des sources.
-            for c in getattr(block, "citations", None) or []:
-                url = getattr(c, "url", None)
-                if url:
-                    sources.setdefault(url, ChatSource(title=getattr(c, "title", None) or url, url=url))
-        if response.stop_reason != "pause_turn":
-            break
-        messages.append({"role": "assistant", "content": response.content})
+    sources: dict[str, ChatSource] = {s["url"]: ChatSource(title=f"INSEE – {s['title']}", url=s["url"])
+                                      for s in insee_seen}
+    # Seul le texte après le dernier appel d'outil est la réponse ; avant, ce sont des phrases de travail.
+    last_tool = max((i for i, b in enumerate(blocks) if b.type in ("tool_use", "server_tool_use")), default=-1)
+    for block in blocks[last_tool + 1:]:
+        if block.type != "text":
+            continue
+        text_parts.append(block.text)
+        # Seules les pages réellement citées par la recherche web deviennent des sources.
+        for c in getattr(block, "citations", None) or []:
+            url = getattr(c, "url", None)
+            if url:
+                sources.setdefault(url, ChatSource(title=getattr(c, "title", None) or url, url=url))
     return ChatResponse(answer="".join(text_parts).strip(), sources=list(sources.values()))
 
 

@@ -65,6 +65,18 @@ def main() -> None:
     txt = to_prompt_text([TranscriptSegment(start=0, text="a"), TranscriptSegment(start=25, text="b")])
     assert txt == "[0s] a\n[25s] b", txt
 
+    # API INSEE en direct : lecture du XML SDMX (sans réseau)
+    from . import insee_api
+    xml = (b'<m:Data xmlns:m="urn:x"><m:DataSet><Series IDBANK="010777608" TITLE_FR="Dette - en point de PIB" '
+           b'UNIT_MEASURE="POURCENT" UNIT_MULT="0" FREQ="T"><Obs TIME_PERIOD="2026-Q2" OBS_VALUE="119.0"/>'
+           b'<Obs TIME_PERIOD="2026-Q1" OBS_VALUE="117.5"/><Obs TIME_PERIOD="2025-Q4" OBS_VALUE="NaN"/></Series>'
+           b'</m:DataSet></m:Data>')
+    s = insee_api.parse_series(xml)[0]
+    assert s["idbank"] == "010777608" and s["observations"] == [["2026-Q1", 117.5], ["2026-Q2", 119.0]], s
+    assert insee_api.run_tool("insee_lire_serie", {"idbank": "abc"})[2]  # idbank invalide → erreur, sans appel réseau
+    assert {t["name"] for t in insee_api.TOOLS} == insee_api.TOOL_NAMES
+    print("insee_api : parse SDMX OK")
+
     # base de données
     db.init()
     sp = Speech(id="yt:TEST", video_id="TEST", url=None, title="t", date="2026-10-01",

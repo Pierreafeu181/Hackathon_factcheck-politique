@@ -7,6 +7,7 @@
 - `data/referentiel/emploi.json` : **15 séries INSEE/DARES** (détail dans `docs/DATA_SOURCES.md`), régénérables avec `scripts/fetch_insee.py`.
 - `referentiel.py` : chargement, conventions de période, comparaisons `niveau`, `evolution` (sens + ampleur, confusion points / %) et `record` (« plus bas depuis N ans », avec repli « c'était vrai il y a peu » → imprécis). Tolérances en tête de fichier. Autotesté (`python -m app.selftest`).
 - `verify.py` : référentiel, sinon web (`llm.web_research`, puis structuration, puis filtrage des URL réellement vues ; confiance ≤ 0,7), sinon invérifiable.
+- Hors référentiel, Claude dispose aussi des **outils INSEE en direct** (`app/insee_api.py` : `insee_chercher_themes`, `insee_lister_series`, `insee_lire_serie`). Il lit la série officielle (inflation, dette, PIB…) et cite sa page insee.fr, comptée comme source officielle. Testé : « inflation > 4 % » → faux (3,1 % en sept. 2026) ; « dette 3 600 Md€, 119 % du PIB » → vrai.
 
 ## Tâches, par priorité
 1. **[P0] Cas limites** sur les vraies affirmations du Lot B. Ajouter chaque cas dans `selftest.py`.
