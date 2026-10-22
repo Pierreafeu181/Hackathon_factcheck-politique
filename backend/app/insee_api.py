@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import threading
 import time
+from collections import OrderedDict
 import unicodedata
 import urllib.error
 import urllib.parse
@@ -25,6 +26,8 @@ import xml.etree.ElementTree as ET  # expat récent : pas d'entités externes ni
 API = "https://bdm.insee.fr/series/sdmx"
 SERIES_URL = "https://www.insee.fr/fr/statistiques/serie/{}"
 CACHE_TTL = 6 * 3600          # les séries bougent au mieux une fois par mois
+CACHE_MAX_ENTRIES = 200       # borné : les paramètres viennent de Claude, donc indirectement des transcripts
+CACHE_MAX_BODY = 2_000_000    # on ne garde pas les très grosses réponses
 MIN_INTERVAL = 2.1            # 30 appels/min max
 MAX_SERIES_LISTED = 40
 MAX_OBS_DEFAULT = 40
@@ -39,7 +42,7 @@ FREQUENT = {
     "001688527": "Taux de chômage BIT, France hors Mayotte, trimestriel",
 }
 
-_cache: dict[str, tuple[float, bytes]] = {}
+_cache: OrderedDict[str, tuple[float, bytes]] = OrderedDict()
 _lock = threading.Lock()
 _last_call = 0.0
 
@@ -52,6 +55,7 @@ def _get(path: str, timeout: int = 60) -> bytes:
     url = f"{API}/{path}"
     now = time.time()
     if (hit := _cache.get(url)) and now - hit[0] < CACHE_TTL:
+        _cache.move_to_end(url)
         return hit[1]
     global _last_call
     with _lock:  # espace les appels réels entre threads (vérifications en parallèle)
@@ -70,7 +74,11 @@ def _get(path: str, timeout: int = 60) -> bytes:
         raise InseeError(f"API INSEE : HTTP {e.code}")
     except urllib.error.URLError as e:
         raise InseeError(f"API INSEE injoignable : {e.reason}")
-    _cache[url] = (now, body)
+    if len(body) <= CACHE_MAX_BODY:
+        _cache[url] = (now, body)
+        _cache.move_to_end(url)
+        while len(_cache) > CACHE_MAX_ENTRIES:
+            _cache.popitem(last=False)  # le moins récemment utilisé
     return body
 
 
