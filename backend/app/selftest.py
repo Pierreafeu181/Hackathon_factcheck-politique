@@ -84,6 +84,17 @@ def main() -> None:
     assert {t["name"] for t in insee_api.TOOLS} == insee_api.TOOL_NAMES
     print("insee_api : parse SDMX OK")
 
+    # registre d'outils et recherche par pertinence (sans réseau)
+    from . import open_data, tools
+    names = {t["name"] for t in tools.available()}
+    assert {"insee_lire_serie", "eurostat_lire", "datagouv_chercher", "assemblee_votes", "wikipedia"} <= names, names
+    assert ("legifrance_chercher" in names) == bool(os.getenv("PISTE_CLIENT_ID"))
+    ranked = open_data._rank([("a", "Impôts et cotisations sociales"), ("b", "Population"), ("c", "Impôt sur le revenu")],
+                             "impôts cotisations", key=lambda x: x[1])
+    assert [c for c, _ in ranked][0] == "a" and "b" not in [c for c, _ in ranked], ranked
+    assert tools.run_tool("outil_inexistant", {})[2]
+    print("outils :", len(names), "disponibles")
+
     # base de données
     db.init()
     sp = Speech(id="yt:TEST", video_id="TEST", url=None, title="t", date="2026-10-01",

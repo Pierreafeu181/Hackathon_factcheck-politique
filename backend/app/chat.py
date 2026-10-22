@@ -46,22 +46,10 @@ def answer(req: ChatRequest) -> ChatResponse:
               .replace("{{INDICATORS}}", referentiel.indicators_for_prompt())
               .replace("{{CONTEXT}}", _context(req)))
     messages: list[dict] = [m.model_dump() for m in req.messages[-MAX_TURNS:]]
-    blocks, insee_seen = llm.run_with_tools(system, messages, effort="low", max_tokens=4000, max_steps=6)
-    text_parts: list[str] = []
-    sources: dict[str, ChatSource] = {s["url"]: ChatSource(title=f"INSEE – {s['title']}", url=s["url"])
-                                      for s in insee_seen}
-    # Seul le texte après le dernier appel d'outil est la réponse ; avant, ce sont des phrases de travail.
-    last_tool = max((i for i, b in enumerate(blocks) if b.type in ("tool_use", "server_tool_use")), default=-1)
-    for block in blocks[last_tool + 1:]:
-        if block.type != "text":
-            continue
-        text_parts.append(block.text)
-        # Seules les pages réellement citées par la recherche web deviennent des sources.
-        for c in getattr(block, "citations", None) or []:
-            url = getattr(c, "url", None)
-            if url:
-                sources.setdefault(url, ChatSource(title=getattr(c, "title", None) or url, url=url))
-    return ChatResponse(answer="".join(text_parts).strip(), sources=list(sources.values()))
+    run = llm.run_with_tools(system, messages, effort="low", max_tokens=4000, max_steps=6)
+    # Sources : pages citées par la recherche web (Claude) et données réellement lues par les outils.
+    sources = {s["url"]: ChatSource(title=s["title"] or s["url"], url=s["url"]) for s in [*run.cited, *run.seen] if s.get("url")}
+    return ChatResponse(answer=run.text, sources=list(sources.values()))
 
 
 def _context(req: ChatRequest) -> str:
