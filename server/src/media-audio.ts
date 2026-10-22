@@ -1,6 +1,5 @@
 import { spawn } from "node:child_process";
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
-import { isIP } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -10,9 +9,17 @@ export const YOUTUBE_ID = /^[A-Za-z0-9_-]{11}$/;
 const MAX_BYTES = 200 * 1024 * 1024;
 const TIMEOUT_MS = 3 * 60_000;
 
+/** Plateformes vidéo prises en charge (même liste que VIDEO_PAGES dans l'extension, plus YouTube). */
+export const VIDEO_HOSTS = [
+  "youtube.com", "youtu.be", "tiktok.com", "instagram.com", "x.com", "twitter.com", "facebook.com", "fb.watch",
+  "dailymotion.com", "dai.ly", "vimeo.com", "twitch.tv", "france.tv", "arte.tv", "rumble.com", "linkedin.com",
+  "threads.net", "threads.com",
+];
+
 /**
- * Adresse de vidéo acceptée : http(s) public uniquement. yt-dlp ira la chercher depuis ce Mac :
- * on refuse localhost et les adresses du réseau local pour ne pas en faire un relais vers l'intranet.
+ * Adresse de vidéo acceptée : https/http sur une plateforme connue uniquement. yt-dlp télécharge depuis ce Mac :
+ * une liste blanche (plutôt qu'une liste noire d'IP privées, contournable par DNS ou redirection) évite
+ * d'en faire un relais vers le réseau local.
  */
 export function mediaUrl(raw: string): string {
   let url: URL;
@@ -21,10 +28,10 @@ export function mediaUrl(raw: string): string {
   } catch {
     throw new Error("Adresse de vidéo invalide.");
   }
-  const host = url.hostname.replace(/^\[|\]$/g, "");
-  const privateIp = isIP(host) && /^(127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|0\.|::1$|f[cd]|fe80)/i.test(host);
-  if (!/^https?:$/.test(url.protocol) || host === "localhost" || host.endsWith(".local") || host.endsWith(".internal") || privateIp) {
-    throw new Error("Adresse de vidéo non autorisée.");
+  const host = url.hostname.toLowerCase();
+  const known = VIDEO_HOSTS.some((h) => host === h || host.endsWith(`.${h}`));
+  if (!/^https?:$/.test(url.protocol) || url.username || url.password || url.port || !known) {
+    throw new Error("Plateforme vidéo non prise en charge.");
   }
   url.hash = "";
   return url.href;

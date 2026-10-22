@@ -49,12 +49,14 @@ test("les phrases d'un même intervenant sont regroupées en blocs, et la longue
   assert.equal(segments[0].text.length, 100); // pas de mutation de l'entrée
 });
 
-test("seules les adresses web publiques sont passées à yt-dlp", async () => {
+test("seules les plateformes vidéo connues sont passées à yt-dlp", async () => {
   assert.ok(YOUTUBE_ID.test("J43DDa090TI"));
   assert.ok(!YOUTUBE_ID.test("--exec=rm -rf"));
   assert.equal(mediaUrl("https://www.tiktok.com/@a/video/123#x"), "https://www.tiktok.com/@a/video/123");
-  for (const bad of ["file:///etc/passwd", "http://localhost:8000/check", "http://192.168.1.1/", "http://[::1]/", "--exec=ls", "http://nas.local/v"]) {
-    assert.throws(() => mediaUrl(bad), /invalide|non autorisée/, bad);
+  assert.equal(mediaUrl("https://vm.tiktok.com/ZM123/"), "https://vm.tiktok.com/ZM123/");
+  for (const bad of ["file:///etc/passwd", "http://localhost:8000/check", "http://192.168.1.1/", "http://[::1]/", "--exec=ls",
+    "https://evil-tiktok.com/v", "https://tiktok.com.evil.net/v", "https://youtube.com:8000/x", "https://a:b@youtube.com/x"]) {
+    assert.throws(() => mediaUrl(bad), /invalide|non prise en charge/, bad);
   }
-  await assert.rejects(downloadAudio("http://127.0.0.1/x"), /non autorisée/);
+  await assert.rejects(downloadAudio("http://127.0.0.1/x"), /non prise en charge/);
 });
