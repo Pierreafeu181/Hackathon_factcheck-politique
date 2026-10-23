@@ -21,6 +21,11 @@ export class CheckCache {
   async get(req: CheckRequest, run: () => Promise<CheckResponse>, force = false): Promise<CheckResponse> {
     const key = `${req.source.url}|${req.politician?.name ?? ""}`;
     if (!force && this.entries[key]) return this.entries[key];
+    // Orateur inconnu côté extension : la même vidéo déjà analysée (ex. pré-analyse de démo) suffit.
+    if (!force && !req.politician?.name) {
+      const known = Object.keys(this.entries).find((k) => k.startsWith(`${req.source.url}|`));
+      if (known) return this.entries[known];
+    }
     const res = await run();
     if (!res.demo && req.source.kind !== "selection") {
       this.entries[key] = res;

@@ -42,3 +42,16 @@ test("le cache survit à un redémarrage, sauf les réponses de démo", async ()
   await reopened.get(req("demo"), async () => (calls++, { claims: [] }));
   assert.equal(calls, 1);
 });
+
+test("sans orateur, une analyse déjà faite pour la même vidéo est réutilisée", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "cache-"));
+  const cache = new CheckCache(join(dir, "c.json"));
+  const url = "https://www.youtube.com/watch?v=abc";
+  const first = await cache.get({ source: { kind: "youtube", url, title: "t" }, segments: [{ text: "x" }], politician: { name: "Jean Dupont" } },
+    async () => ({ claims: [{ id: "1", quote: "q", verdict: "vrai", explanation: "e", sources: [] }] }));
+  let ran = false;
+  const second = await cache.get({ source: { kind: "youtube", url, title: "t" }, segments: [{ text: "x" }] },
+    async () => { ran = true; return { claims: [] }; });
+  assert.equal(ran, false);
+  assert.deepEqual(second, first);
+});
