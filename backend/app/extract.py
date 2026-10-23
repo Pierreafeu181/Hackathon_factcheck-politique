@@ -1,6 +1,8 @@
 """Lot B — Extraction des affirmations vérifiables depuis un transcript."""
 from __future__ import annotations
 
+import datetime as dt
+
 from . import llm, referentiel
 from .models import Category, ExtractedClaim, ExtractionResult
 
@@ -9,7 +11,8 @@ def extract_claims(transcript_text: str, speaker: str, categories: list[Category
     system = llm.prompt("extract").replace("{{INDICATORS}}", referentiel.indicators_for_prompt())
     user = (
         f"Orateur : {speaker}\n"
-        f"Date du discours : {date or 'inconnue'}\n"
+        # Sans date, certains modèles (Gemini) n'extraient rien : on donne la date d'analyse.
+        f"Date du discours : {date or f'inconnue (analyse du {dt.date.today().isoformat()}, propos probablement récents)'}\n"
         f"Catégories à couvrir : {', '.join(c.value for c in categories)}\n\n"
         f"<transcript>\n{transcript_text}\n</transcript>"
     )

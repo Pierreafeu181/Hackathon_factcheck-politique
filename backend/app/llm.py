@@ -1,7 +1,7 @@
 """Client LLM unique du projet. Ne pas instancier de client Gemini ou Anthropic ailleurs.
 
 Deux fournisseurs, choisis par LLM_PROVIDER (défaut : gemini si GEMINI_API_KEY est défini, sinon anthropic) :
-- gemini : Gemini Flash, offre gratuite (modèle : GEMINI_MODEL, défaut gemini-3.8-flash). Pas de recherche
+- gemini : Gemini Flash, offre gratuite (modèle : GEMINI_MODEL, défaut gemini-3.5-flash-lite, secours gemini-3.8-flash). Pas de recherche
   Google sur l'offre gratuite : la vérification passe par nos outils de données ouvertes (tools.py).
   Appels limités en parallèle et relancés automatiquement quand le quota par minute est atteint.
 - anthropic : Claude (LLM_MODEL, défaut claude-sonnet-5-5), avec sa recherche web. Gardé pour le jour
@@ -29,7 +29,7 @@ load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 log = logging.getLogger("factcheck.llm")
 
 PROVIDER = os.getenv("LLM_PROVIDER") or ("gemini" if os.getenv("GEMINI_API_KEY") else "anthropic")
-MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash") if PROVIDER == "gemini" else os.getenv("LLM_MODEL", "claude-sonnet-5-5")
+MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite") if PROVIDER == "gemini" else os.getenv("LLM_MODEL", "claude-sonnet-5-5")
 PROMPTS_DIR = Path(__file__).parent / "prompts"
 
 # Anthropic (si LLM_PROVIDER=anthropic)
@@ -83,15 +83,20 @@ _gemini_client = None
 _gemini_slots = threading.Semaphore(int(os.getenv("GEMINI_MAX_PARALLEL", "2")))
 
 
+_gemini_lock = threading.Lock()
+
+
 def _gemini():
+    """Client unique, créé sous verrou : deux threads qui en créeraient chacun un fermeraient celui de l'autre."""
     global _gemini_client
-    if _gemini_client is None:
-        from google import genai
-        _gemini_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
-    return _gemini_client
+    with _gemini_lock:
+        if _gemini_client is None:
+            from google import genai
+            _gemini_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+        return _gemini_client
 
 
-FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-3.5-flash-lite")
+FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-3.8-flash")
 _fallback_until = 0.0
 
 

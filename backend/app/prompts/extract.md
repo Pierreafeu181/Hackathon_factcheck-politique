@@ -22,7 +22,7 @@ Pour chaque affirmation :
 - `value` : le nombre affirmé, **dans l'unité de l'indicateur**. Les volumes du référentiel sont en **milliers** : « 3,3 millions de demandeurs d'emploi » → 3300. « Sept virgule cinq pour cent » → 7.5. Pour un record « au plus bas depuis 40 ans » → value 40, unit `annees` ;
 - `unit` : `pourcent` pour un taux, `points` pour un écart de taux, `pourcent_variation` pour une variation relative, `milliers`, `annees` pour un record exprimé en années ;
 - `direction` : `hausse` ou `baisse` pour une évolution ; pour un record, `baisse` = « plus bas », `hausse` = « plus haut » ; sinon `null` ;
-- `period_start` / `period_end` : au format `AAAA` ou `AAAA-Tn`. « Depuis 2017 » → period_start "2017", period_end null. « Aujourd'hui » ou présent → period_end null. Déduis l'année à partir de la date du discours si elle est donnée ;
+- `period_start` / `period_end` : au format `AAAA` ou `AAAA-Tn`. « Depuis 2017 » → period_start "2017", period_end null. « Aujourd'hui », « actuellement », « en ce moment » ou un verbe au présent → period_start **et** period_end null (= dernier chiffre publié), jamais l'année en cours. Déduis l'année à partir de la date du discours si elle est donnée ;
 - `geo` : "France" par défaut.
 
 Si l'orateur répète la même affirmation, ne la garde qu'une fois (la première occurrence).

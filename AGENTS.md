@@ -130,7 +130,7 @@ python scripts/fetch_insee.py
 - [x] Passage à Gemini Flash (offre gratuite), Claude en option — `llm.py`
 - [x] Sources de vérification : Eurostat, data.gouv.fr, Banque mondiale, votes de l'Assemblée nationale, Wikipédia ; Google Fact Check et Légifrance dès que leurs clés sont dans `.env` — Lot C
 - [ ] Banque de France (clé du portail développeur) et OCDE (API refusée, 403)
-- [ ] Tester le pipeline complet avec une clé Gemini et relancer le benchmark
+- [x] Pipeline complet testé sur Gemini 3.5 Flash-Lite (gratuit) : benchmark 10/10 (Claude seul 3/10, Gemini seul 6/10), vidéo réelle en 14 s, chat avec les votes de l'Assemblée. `gemini-3.8-flash` n'a que 20 requêtes/jour en gratuit : il sert de secours
 - [ ] Itérer les prompts sur 2-3 vraies vidéos — Lots B/C
 - [ ] Choisir et mettre en cache les vidéos de démo — Lot E
 
