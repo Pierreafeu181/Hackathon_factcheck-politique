@@ -25,6 +25,7 @@ interface Page {
 }
 
 let backend = DEFAULT_BACKEND;
+let apiToken = ""; // clé d'accès d'un serveur hébergé (vide en local)
 let current: Page | undefined;
 let detecting: string | undefined; // page en cours de détection (plusieurs événements Chrome par navigation)
 let history: ChatRequest["messages"] = [];
@@ -34,7 +35,10 @@ let analyzing = 0; // analyses en cours (le bouton « Analyser » est désactiv�
 // --- Appels au serveur ---------------------------------------------------------
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(backend + path, { ...init, headers: { "Content-Type": "application/json" } });
+  const res = await fetch(backend + path, {
+    ...init,
+    headers: { "Content-Type": "application/json", ...(apiToken && { "X-VerifPol-Token": apiToken }) },
+  });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error ?? `Serveur : HTTP ${res.status}`);
   return body as T;
@@ -330,7 +334,7 @@ async function toggleLive(menuStreamId?: string): Promise<void> {
   msg.body.classList.remove("pending");
   msg.body.append(status, feed, list);
   page.claims = [];
-  const ws = new WebSocket(`${backend.replace(/^http/, "ws")}/api/live`);
+  const ws = new WebSocket(`${backend.replace(/^http/, "ws")}/api/live${apiToken ? `?token=${encodeURIComponent(apiToken)}` : ""}`);
   live = { page, ws, stream, audio, msg, status, feed, list, claims: page.claims };
   setLiveButton(true);
   const offset = await playbackTime(page.tabId);
@@ -966,8 +970,15 @@ async function consumePendingSelection(): Promise<void> {
 // --- Démarrage -----------------------------------------------------------------
 
 async function init(): Promise<void> {
-  const stored = (await chrome.storage.sync.get("backend")) as { backend?: string };
+  const stored = (await chrome.storage.sync.get(["backend", "apiToken"])) as { backend?: string; apiToken?: string };
   backend = stored.backend || DEFAULT_BACKEND;
+  apiToken = stored.apiToken ?? "";
+  const tokenInput = $<HTMLInputElement>("token");
+  tokenInput.value = apiToken;
+  tokenInput.addEventListener("change", () => {
+    apiToken = tokenInput.value.trim();
+    void chrome.storage.sync.set({ apiToken });
+  });
   const input = $<HTMLInputElement>("backend");
   input.value = backend;
   input.addEventListener("change", () => {

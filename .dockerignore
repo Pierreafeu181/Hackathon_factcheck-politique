@@ -1,0 +1,14 @@
+**/node_modules
+**/.venv
+**/.env
+**/.env.*
+!**/.env.example
+.git
+.context
+.playwright-mcp
+extension/dist
+server/data
+backend/data
+backend/*.db
+**/__pycache__
+docs/submission
