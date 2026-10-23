@@ -19,14 +19,21 @@ export class DailyLimiter {
     }
     const used = this.counts.get(client) ?? 0;
     if (used >= this.perClient || this.total >= this.global) return false;
+    if (!this.counts.has(client) && this.counts.size >= 50_000) {
+      this.counts.delete(this.counts.keys().next().value!); // garde-fou mémoire : on oublie le plus ancien
+    }
     this.counts.set(client, used + 1);
     this.total++;
-    if (this.counts.size > 50_000) this.counts.clear(); // garde-fou mémoire
     return true;
   }
 }
 
-/** IP du client derrière le proxy de l'hébergeur (premier élément de X-Forwarded-For), sinon l'adresse directe. */
-export function clientIp(forwarded: string | undefined, direct: string | undefined): string {
-  return (forwarded?.split(",")[0] ?? "").trim() || direct || "inconnu";
+/**
+ * IP du client derrière le proxy de l'hébergeur. Le client peut écrire ce qu'il veut au début de
+ * X-Forwarded-For : seule la valeur ajoutée par notre proxy compte, en comptant depuis la droite
+ * (TRUSTED_PROXY_HOPS, 1 par défaut = dernier élément). Sans en-tête : l'adresse de la connexion.
+ */
+export function clientIp(forwarded: string | undefined, direct: string | undefined, hops = Number(process.env.TRUSTED_PROXY_HOPS ?? 1)): string {
+  const chain = (forwarded ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  return chain[chain.length - Math.max(1, hops)] || chain[0] || direct || "inconnu";
 }

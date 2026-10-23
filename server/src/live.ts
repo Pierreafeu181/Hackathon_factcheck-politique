@@ -22,11 +22,18 @@ const MAX_SESSION_MS = 2 * 3600_000;
 type Start = { type: "start"; url: string; title?: string; speaker?: string; offset?: number };
 type Send = (msg: object) => void;
 
+export interface SessionPolicy {
+  maxMs: number;
+  /** false = quota d'analyses épuisé pour ce client */
+  allowCheck: () => boolean;
+}
+
 interface LiveOptions {
   deepgramKey?: string;
   model: string;
   check: (req: CheckRequest) => Promise<CheckResponse>;
   allowed: (req: IncomingMessage) => boolean;
+  sessionPolicy?: (req: IncomingMessage) => SessionPolicy;
 }
 
 /** Une phrase finale de Deepgram → segment horodaté (temps du flux + décalage de la vidéo au départ). */
@@ -72,13 +79,14 @@ export function attachLive(server: { on(event: "upgrade", cb: (req: IncomingMess
         socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
         return socket.destroy();
       }
-      wss.handleUpgrade(req, socket, head, (ws) => session(ws));
+      const policy = opts.sessionPolicy?.(req) ?? { maxMs: MAX_SESSION_MS, allowCheck: () => true };
+      wss.handleUpgrade(req, socket, head, (ws) => session(ws, policy));
     } catch {
       socket.destroy(); // une requête malformée ne doit jamais faire tomber le serveur
     }
   });
 
-  function session(client: WebSocket): void {
+  function session(client: WebSocket, policy: SessionPolicy): void {
     const send: Send = (msg) => client.readyState === WebSocket.OPEN && client.send(JSON.stringify(msg));
     if (!opts.deepgramKey) {
       send({ type: "error", error: "Le direct a besoin de Deepgram : ajoutez DEEPGRAM_API_KEY dans server/.env." });
@@ -105,6 +113,10 @@ export function attachLive(server: { on(event: "upgrade", cb: (req: IncomingMess
       checking = checking.then(async () => {
         send({ type: "checking" });
         try {
+          if (!policy.allowCheck()) {
+            send({ type: "error", error: "Limite d'analyses du jour atteinte : le direct continue de transcrire sans vérifier." });
+            return;
+          }
           const res = await opts.check({ source: { kind: "podcast", url: s.url, title: s.title ?? s.url }, segments,
             ...(s.speaker && { politician: { name: s.speaker } }) });
           // Identifiants uniques sur toute la session (le moteur numérote chaque passage à partir de 0).
@@ -117,7 +129,7 @@ export function attachLive(server: { on(event: "upgrade", cb: (req: IncomingMess
       });
     };
     const timer = setInterval(() => runCheck(), 5_000);
-    const maxTimer = setTimeout(() => stop("Durée maximale atteinte (2 h)."), MAX_SESSION_MS);
+    const maxTimer = setTimeout(() => stop(`Durée maximale atteinte (${Math.round(policy.maxMs / 60_000)} min).`), policy.maxMs);
 
     const stop = (reason?: string) => {
       if (closed) return;

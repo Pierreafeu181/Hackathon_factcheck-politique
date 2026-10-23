@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { CheckRequest, CheckResponse } from "../../shared/contract.ts";
@@ -18,17 +19,23 @@ export class CheckCache {
     }
   }
 
-  async get(req: CheckRequest, run: () => Promise<CheckResponse>, force = false): Promise<CheckResponse> {
-    const key = `${req.source.url}|${req.politician?.name ?? ""}`;
-    if (!force && this.entries[key]) return this.entries[key];
-    // Orateur inconnu côté extension : la même vidéo déjà analysée (ex. pré-analyse de démo) suffit.
-    if (!force && !req.politician?.name) {
-      const known = Object.keys(this.entries).find((k) => k.startsWith(`${req.source.url}|`));
-      if (known) return this.entries[known];
+  /**
+   * Clé = page + orateur + empreinte du texte envoyé : en accès public, quelqu'un qui enverrait un faux
+   * transcript pour une vraie vidéo n'écraserait que sa propre entrée. `trusted` (clé d'admin ou accès local) :
+   * l'analyse est aussi enregistrée pour la vidéo entière, et réutilisée quel que soit le texte reçu.
+   */
+  async get(req: CheckRequest, run: () => Promise<CheckResponse>, force = false, trusted = true): Promise<CheckResponse> {
+    const text = createHash("sha256").update(req.segments.map((s) => s.text).join("\n")).digest("hex").slice(0, 16);
+    const exact = `${req.source.url}|${req.politician?.name ?? ""}|${text}`;
+    const video = `${req.source.url}|*`;
+    if (!force) {
+      const hit = this.entries[exact] ?? this.entries[video];
+      if (hit) return hit;
     }
     const res = await run();
     if (!res.demo && req.source.kind !== "selection") {
-      this.entries[key] = res;
+      this.entries[exact] = res;
+      if (trusted) this.entries[video] = res;
       mkdirSync(dirname(this.path), { recursive: true });
       writeFileSync(this.path, JSON.stringify(this.entries));
     }

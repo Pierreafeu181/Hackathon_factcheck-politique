@@ -60,8 +60,16 @@ const limits = { check: limiter("CHECKS", 40, 400), chat: limiter("CHATS", 100, 
 const withinQuota = (kind: keyof typeof limits, token: string | null | undefined, ip: string) =>
   !publicAccess || tokenOk(token) || limits[kind].take(ip);
 const quotaError = { error: "Limite d'utilisation du jour atteinte pour ce service gratuit. Réessayez demain." };
-const ipOf = (c: Context) => clientIp(c.req.header("x-forwarded-for"), undefined);
+const ipOf = (c: Context) => {
+  const incoming = (c.env as { incoming?: { socket?: { remoteAddress?: string } } } | undefined)?.incoming;
+  return clientIp(c.req.header("x-forwarded-for"), incoming?.socket?.remoteAddress);
+};
+let xffLogs = 0;
 app.use("/api/*", async (c, next) => {
+  if (publicAccess && xffLogs < 5) { // diagnostic : nombre de proxys devant l'app (jamais les adresses)
+    xffLogs++;
+    console.log(`[proxy] X-Forwarded-For : ${(c.req.header("x-forwarded-for") ?? "").split(",").filter(Boolean).length} élément(s)`);
+  }
   if (c.req.path === "/api/health" && c.req.method === "GET") return next(); // sonde de l'hébergeur
   if (!accessOk(c.req.header("host"), c.req.header("origin"), c.req.header("x-verifpol-token"))) {
     return c.json({ error: apiToken && !publicAccess ? "Clé d'accès manquante ou invalide (Réglages du panneau)." : "Accès réservé à l'extension." }, 403);
@@ -89,7 +97,8 @@ app.post("/api/check", async (c) => {
         return { claims: [], demo: true }; // non mis en cache (demo)
       }
       return check(req);
-    }, c.req.query("force") === "1" && (!publicAccess || tokenOk(token))); // ?force=1 réservé à l'admin en public
+    }, c.req.query("force") === "1" && (!publicAccess || tokenOk(token)), // ?force=1 réservé à l'admin en public
+    !publicAccess || tokenOk(token)); // seules les analyses de confiance servent pour toute la vidéo
     return overQuota ? c.json(quotaError, 429) : c.json(res);
   } catch (err) {
     return c.json({ error: (err as Error).message }, 502);
@@ -190,5 +199,13 @@ attachLive(server, {
     const ip = clientIp(Array.isArray(forwarded) ? forwarded[0] : forwarded, req.socket.remoteAddress);
     return (req.headers.origin ?? "").startsWith("chrome-extension://") &&
       accessOk(req.headers.host, req.headers.origin, token) && withinQuota("live", token, ip);
+  },
+  // Accès public : chaque passage vérifié en direct compte comme une analyse, et la session est limitée à 30 min.
+  sessionPolicy: (req) => {
+    const token = (req.headers["sec-websocket-protocol"] ?? "").split(",").map((p) => p.trim())[1];
+    const forwarded = req.headers["x-forwarded-for"];
+    const ip = clientIp(Array.isArray(forwarded) ? forwarded[0] : forwarded, req.socket.remoteAddress);
+    const limited = publicAccess && !tokenOk(token);
+    return { maxMs: limited ? 30 * 60_000 : 2 * 3600_000, allowCheck: () => !limited || limits.check.take(ip) };
   },
 });

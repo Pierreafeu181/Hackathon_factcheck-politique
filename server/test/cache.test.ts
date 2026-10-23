@@ -12,15 +12,27 @@ const req = (url: string, name?: string): CheckRequest => ({
   ...(name && { politician: { name } }),
 });
 
-test("une même vidéo avec le même orateur n'est analysée qu'une fois", async () => {
+test("une même vidéo n'est analysée qu'une fois (la correction d'orateur force une nouvelle analyse)", async () => {
   const cache = new CheckCache(join(mkdtempSync(join(tmpdir(), "cache-")), "c.json"));
   let calls = 0;
   const run = async () => (calls++, { claims: [] });
   await cache.get(req("https://youtube.com/watch?v=a", "Barnier"), run);
   await cache.get(req("https://youtube.com/watch?v=a", "Barnier"), run);
   assert.equal(calls, 1);
-  await cache.get(req("https://youtube.com/watch?v=a", "Bompard"), run);
+  await cache.get(req("https://youtube.com/watch?v=a", "Bompard"), run, true);
   assert.equal(calls, 2);
+});
+
+test("accès public : un faux transcript n'est jamais resservi aux autres pour la même vidéo", async () => {
+  const cache = new CheckCache(join(mkdtempSync(join(tmpdir(), "cache-")), "c.json"));
+  const url = "https://youtube.com/watch?v=b";
+  const fake = { claims: [{ id: "f", quote: "faux", verdict: "faux" as const, explanation: "x", sources: [] }] };
+  await cache.get({ source: { kind: "youtube", url }, segments: [{ text: "texte inventé" }] }, async () => fake, false, false);
+  let ran = false;
+  const real = await cache.get({ source: { kind: "youtube", url }, segments: [{ text: "vraie transcription" }] },
+    async () => { ran = true; return { claims: [] }; }, false, false);
+  assert.equal(ran, true);
+  assert.deepEqual(real, { claims: [] });
 });
 
 test("force relance l'analyse", async () => {
@@ -65,6 +77,7 @@ test("quota journalier : par client et au total", () => {
   assert.equal(l.take("a"), false); // limite du client
   assert.equal(l.take("b"), true);
   assert.equal(l.take("c"), false); // limite globale
-  assert.equal(clientIp("203.0.113.5, 10.0.0.1", "10.0.0.1"), "203.0.113.5");
+  assert.equal(clientIp("1.2.3.4, 203.0.113.5", "10.0.0.1", 1), "203.0.113.5"); // « 1.2.3.4 » écrit par le client : ignoré
+  assert.equal(clientIp("1.2.3.4, 203.0.113.5, 10.0.0.2", "10.0.0.1", 2), "203.0.113.5");
   assert.equal(clientIp(undefined, "127.0.0.1"), "127.0.0.1");
 });
