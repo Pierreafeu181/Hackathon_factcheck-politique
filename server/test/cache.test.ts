@@ -77,7 +77,8 @@ test("quota journalier : par client et au total", () => {
   assert.equal(l.take("a"), false); // limite du client
   assert.equal(l.take("b"), true);
   assert.equal(l.take("c"), false); // limite globale
-  assert.equal(clientIp("1.2.3.4, 203.0.113.5", "10.0.0.1", 1), "203.0.113.5"); // « 1.2.3.4 » écrit par le client : ignoré
-  assert.equal(clientIp("1.2.3.4, 203.0.113.5, 10.0.0.2", "10.0.0.1", 2), "203.0.113.5");
+  assert.equal(clientIp("1.2.3.4, 203.0.113.5", "10.0.0.1"), "203.0.113.5"); // « 1.2.3.4 » écrit par le client : ignoré
+  assert.equal(clientIp("1.2.3.4, 203.0.113.5, 10.0.0.2", "10.0.0.1"), "203.0.113.5"); // proxy interne sauté
+  assert.equal(clientIp("203.0.113.5, ::ffff:172.20.0.3, 10.1.2.3", undefined), "203.0.113.5");
   assert.equal(clientIp(undefined, "127.0.0.1"), "127.0.0.1");
 });

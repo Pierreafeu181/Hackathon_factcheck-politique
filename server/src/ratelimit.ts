@@ -28,12 +28,15 @@ export class DailyLimiter {
   }
 }
 
+const PRIVATE = /^(10\.|127\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.|::1$|f[cd][0-9a-f]{2}:|fe80:)/i;
+
 /**
- * IP du client derrière le proxy de l'hébergeur. Le client peut écrire ce qu'il veut au début de
- * X-Forwarded-For : seule la valeur ajoutée par notre proxy compte, en comptant depuis la droite
- * (TRUSTED_PROXY_HOPS, 1 par défaut = dernier élément). Sans en-tête : l'adresse de la connexion.
+ * IP du visiteur derrière les proxys de l'hébergeur. Le client peut écrire ce qu'il veut au début de
+ * X-Forwarded-For ; les proxys ajoutent à la fin. On lit donc depuis la droite en sautant les adresses
+ * de réseau privé (proxys internes) : la première adresse publique est celle du visiteur.
  */
-export function clientIp(forwarded: string | undefined, direct: string | undefined, hops = Number(process.env.TRUSTED_PROXY_HOPS ?? 1)): string {
-  const chain = (forwarded ?? "").split(",").map((s) => s.trim()).filter(Boolean);
-  return chain[chain.length - Math.max(1, hops)] || chain[0] || direct || "inconnu";
+export function clientIp(forwarded: string | undefined, direct: string | undefined): string {
+  const chain = (forwarded ?? "").split(",").map((s) => s.trim().replace(/^::ffff:/, "")).filter(Boolean);
+  for (let i = chain.length - 1; i >= 0; i--) if (!PRIVATE.test(chain[i])) return chain[i];
+  return chain[0] || direct || "inconnu";
 }

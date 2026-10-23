@@ -64,12 +64,7 @@ const ipOf = (c: Context) => {
   const incoming = (c.env as { incoming?: { socket?: { remoteAddress?: string } } } | undefined)?.incoming;
   return clientIp(c.req.header("x-forwarded-for"), incoming?.socket?.remoteAddress);
 };
-let xffLogs = 0;
 app.use("/api/*", async (c, next) => {
-  if (publicAccess && xffLogs < 5) { // diagnostic : nombre de proxys devant l'app (jamais les adresses)
-    xffLogs++;
-    console.log(`[proxy] X-Forwarded-For : ${(c.req.header("x-forwarded-for") ?? "").split(",").filter(Boolean).length} élément(s)`);
-  }
   if (c.req.path === "/api/health" && c.req.method === "GET") return next(); // sonde de l'hébergeur
   if (!accessOk(c.req.header("host"), c.req.header("origin"), c.req.header("x-verifpol-token"))) {
     return c.json({ error: apiToken && !publicAccess ? "Clé d'accès manquante ou invalide (Réglages du panneau)." : "Accès réservé à l'extension." }, 403);
