@@ -70,6 +70,7 @@ def main() -> None:
     assert referentiel.check(claim(indicator="taux_chomage_moins_25", value=young - 1.5, unit=Unit.pourcent, bound="min")).verdict == Verdict.vrai
     assert referentiel.check(claim(indicator="taux_chomage_moins_25", value=young - 1.5, unit=Unit.pourcent)).verdict != Verdict.vrai
     assert referentiel.check(claim(indicator="taux_chomage_moins_25", value=young - 1.5, unit=Unit.pourcent, bound="max")).verdict == Verdict.faux
+    assert referentiel.check(claim(indicator="taux_chomage_moins_25", value=young - 0.2, unit=Unit.pourcent, bound="max")).verdict == Verdict.imprecis
     print("bornes : « plus de » / « moins de » OK")
 
     # API INSEE en direct : lecture du XML SDMX (sans réseau)

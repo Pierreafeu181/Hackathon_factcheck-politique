@@ -177,6 +177,8 @@ def _check_level(c: ExtractedClaim, s: Series) -> CheckResult | None:
         diff = _gap(c.value, official, c.bound) / abs(official)
         verdict = _grade(diff, VOLUME_TOL)
         facts = f"Affirmé : {said}{c.value} {s.unit}. Officiel ({period}) : {official} {s.unit}. Écart relatif : {diff:.1%}."
+    if c.bound and diff > 0 and verdict in (Verdict.vrai, Verdict.plutot_vrai):
+        verdict = Verdict.imprecis  # « moins de 8 % » alors que c'est 8,3 % : seuil franchi, jamais « vrai »
     return CheckResult(verdict, official, period, facts, [s.source(period)])
 
 
