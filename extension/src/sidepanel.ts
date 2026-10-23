@@ -666,7 +666,8 @@ async function ask(text: string): Promise<void> {
 function fitInput(): void {
   const input = $<HTMLTextAreaElement>("question");
   input.style.height = "auto";
-  input.style.height = `${Math.min(input.scrollHeight, 140)}px`;
+  // Vide : une seule ligne (la hauteur calculée avant l'affichage du panneau serait fausse).
+  if (input.value) input.style.height = `${Math.min(input.scrollHeight, 140)}px`;
   $<HTMLButtonElement>("send").disabled = busy || !input.value.trim();
 }
 
