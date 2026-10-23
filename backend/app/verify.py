@@ -6,6 +6,8 @@
 """
 from __future__ import annotations
 
+from urllib.parse import urlparse
+
 import json
 import logging
 
@@ -15,6 +17,16 @@ from .models import ExplanationText, ExtractedClaim, Method, Verdict, Verificati
 log = logging.getLogger(__name__)
 
 WEB_CONFIDENCE_CAP = 0.7
+
+
+# Jamais des preuves : sources modifiables par tous, réseaux sociaux, plateformes de blogs.
+UNRELIABLE_HOSTS = ("wikipedia.org", "wikiwix.com", "x.com", "twitter.com", "facebook.com", "instagram.com", "tiktok.com",
+                    "reddit.com", "medium.com", "substack.com", "blogspot.com", "over-blog.com", "quora.com")
+
+
+def unreliable(url: str) -> bool:
+    host = (urlparse(url).hostname or "").lower()
+    return any(host == h or host.endswith("." + h) for h in UNRELIABLE_HOSTS)
 
 
 def verify(claim: ExtractedClaim, speech_date: str | None = None, use_web: bool = True) -> Verification:
@@ -65,7 +77,7 @@ def _from_web(claim: ExtractedClaim, speech_date: str | None) -> Verification:
         findings, WebVerification, effort="low", max_tokens=4000,
     )
     seen_urls = {s["url"] for s in seen}
-    sources = [s for s in structured.sources if s.url in seen_urls] or structured.sources[:0]
+    sources = [s for s in structured.sources if s.url in seen_urls and not unreliable(s.url)]
     verdict = structured.verdict if sources else Verdict.inverifiable
     return Verification(
         verdict=verdict, method=Method.web,

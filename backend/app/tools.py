@@ -42,8 +42,9 @@ _TOOLS: list[tuple[dict, Callable[[dict], object], Callable[[dict, object], list
      lambda a: open_data.eurostat_read(a["jeu"], a.get("filtres"), a.get("pays"), a.get("depuis", "")),
      lambda a, r: _source(f"Eurostat – {r.get('titre')}", r.get("url")), None),
     ({"name": "datagouv_chercher",
-      "description": "Cherche des jeux de données publics sur data.gouv.fr (délinquance SSMSI, immigration, éducation, santé, "
-                     "énergie, collectivités, budgets…). Renvoie les jeux et leurs ressources (id, format).",
+      "description": "Cherche des jeux de données publics sur data.gouv.fr, publiés par des organismes publics certifiés "
+                     "seulement (ministères, opérateurs, collectivités) : délinquance SSMSI, immigration, éducation, santé, "
+                     "énergie, budgets… Renvoie les jeux et leurs ressources (id, format).",
       "input_schema": _obj({"mots_cles": S}, ["mots_cles"])},
      lambda a: open_data.datagouv_search(a["mots_cles"]), lambda a, r: [], None),
     ({"name": "datagouv_lire_ressource",
@@ -66,11 +67,6 @@ _TOOLS: list[tuple[dict, Callable[[dict], object], Callable[[dict, object], list
       "input_schema": _obj({"mots_cles": S, "depute": S}, ["mots_cles"])},
      lambda a: assemblee.search(a["mots_cles"], a.get("depute", "")),
      lambda a, r: [{"title": f"Assemblée nationale – scrutin n° {s['numero']}", "url": s["url"]} for s in r.get("scrutins", [])[:5]], None),
-    ({"name": "wikipedia",
-      "description": "Recherche Wikipédia en français (contexte, définitions, dates). Source secondaire : à n'utiliser qu'en repli.",
-      "input_schema": _obj({"recherche": S}, ["recherche"])},
-     lambda a: open_data.wikipedia_search(a["recherche"]),
-     lambda a, r: [{"title": f"Wikipédia – {p['titre']}", "url": p["url"]} for p in r.get("pages", [])], None),
     ({"name": "factchecks_publies",
       "description": "Cherche si l'affirmation a déjà été vérifiée par des médias (AFP Factuel, Libération, Le Monde, franceinfo…).",
       "input_schema": _obj({"affirmation": S}, ["affirmation"])},

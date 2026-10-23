@@ -45,7 +45,7 @@ backend/                 ← MOTEUR D'ANALYSE Python / FastAPI, port 8000
   app/referentiel.py     ← séries officielles + comparaison DÉTERMINISTE
   app/llm.py             ← client LLM unique : Gemini (défaut) ou Claude, sortie structurée, boucle d'outils
   app/tools.py           ← registre des outils de vérification exposés au modèle
-  app/open_data.py       ← Eurostat, data.gouv.fr, Banque mondiale, Wikipédia, Google Fact Check*, Légifrance* (*clé)
+  app/open_data.py       ← Eurostat, data.gouv.fr (producteurs publics certifiés), Banque mondiale, Google Fact Check*, Légifrance* (*clé)
   app/assemblee.py       ← votes de l'Assemblée nationale (open data officiel, indexé au démarrage)
   app/insee_api.py       ← outils Claude : API BDM de l'INSEE en direct (thèmes → séries → observations)
   app/db.py              ← SQLite (politicians, speeches, claims, verifications) + profils
@@ -116,11 +116,10 @@ python scripts/fetch_insee.py
 - [x] Moteur Python : référentiel de 15 séries INSEE/DARES, comparaison déterministe, extraction, repli web, SQLite, profils
 - [x] `POST /check` sur le moteur Python, compatible `shared/contract.ts` (autotest du mapping OK)
 - [x] **Brancher et tester de bout en bout** : `CHECKER_URL=http://localhost:8000/check` avec une vraie clé Anthropic. Testé le 22/10 : fixture de démo (3 verdicts justes, 7 s avec `LLM_MODEL=claude-sonnet-5-5`, 12 s avec Opus 5.5) et veille podcasts (RMC, RTL, Sud Radio : Deepgram → moteur → 13 affirmations sourcées). Reste à tester le panneau de l'extension avec le vrai Claude
-- [ ] Profils dans l'extension : l'onglet Profils de l'ancienne extension n'a pas été porté (API `GET /politicians` prête) — Lot A/D
+- [x] Onglet « Profils » dans l'extension : score de fiabilité, répartition des verdicts, dernières affirmations (`GET /politicians/{id}/claims`, relais `/api/politicians*` côté Node) — Lots A/D
 - [x] Nom de l'orateur : `politician` et `date` ajoutés à `CheckRequest` dans `contract.ts` ; l'extension devine l'orateur depuis le titre (corrigeable)
 - [x] Panneau en mode chat : vérification automatique des vidéos YouTube, chat (`/api/chat` → `/chat`), « Pourquoi ? » par carte, carte en cours surlignée, cache des analyses côté Node — Lot A
 - [x] Base PostgreSQL : `db.py` bascule sur Postgres si `DATABASE_URL` est défini (SQLite sinon), testé sur Postgres 17 — Lot D
-- [ ] Créer le service PostgreSQL sur Aiven et mettre son Service URI dans `backend/.env` (`DATABASE_URL`)
 - [x] Outils INSEE en direct pour Claude (`insee_api.py`) : vérification web et chat lisent les séries officielles hors référentiel (inflation, dette, PIB…) — Lots A/C
 - [x] Vidéos YouTube sans sous-titres : le serveur Node télécharge l'audio (yt-dlp) et le fait transcrire par Deepgram (`/api/transcribe-youtube`) — Lot A
 - [x] Panneau façon ChatGPT : verdicts en liste dépliable, filtres par verdict, onglet Veille avec résumé faux/trompeur de la session (dédoublonné) et historique des pages analysées (`chrome.storage.local`) — Lot A
@@ -128,9 +127,12 @@ python scripts/fetch_insee.py
 - [x] Direct : bouton « ● Direct », son de l'onglet (chrome.tabCapture) → WebSocket `/api/live` → Deepgram en streaming → analyse toutes les ~45 s de parole. Marche sur n'importe quel site, y compris connecté — Lot A
 - [x] Garde-fous du chat : hors sujet (code, devoirs…), consignes de vote et injections refusés (`prompts/chat.md`)
 - [x] Passage à Gemini Flash (offre gratuite), Claude en option — `llm.py`
-- [x] Sources de vérification : Eurostat, data.gouv.fr, Banque mondiale, votes de l'Assemblée nationale, Wikipédia ; Google Fact Check et Légifrance dès que leurs clés sont dans `.env` — Lot C
+- [x] Sources de vérification : Eurostat, data.gouv.fr (producteurs publics certifiés seulement), Banque mondiale, votes de l'Assemblée nationale ; Google Fact Check et Légifrance dès que leurs clés sont dans `.env`. Wikipédia, réseaux sociaux et blogs exclus comme preuves ; hiérarchie des sources dans les prompts — Lot C
 - [ ] Banque de France (clé du portail développeur) et OCDE (API refusée, 403)
 - [x] Pipeline complet testé sur Gemini 3.5 Flash-Lite (gratuit) : benchmark 10/10 (Claude seul 3/10, Gemini seul 6/10), vidéo réelle en 14 s, chat avec les votes de l'Assemblée. `gemini-3.8-flash` n'a que 20 requêtes/jour en gratuit : il sert de secours
+- [x] Aiven PostgreSQL branché (`DATABASE_URL`) : tables créées, analyses écrites et relues depuis Aiven
+- [x] Image Docker d'hébergement (`Dockerfile`, `deploy/start.sh`, `docs/DEPLOY.md`) + clé d'accès `API_TOKEN` côté serveur et dans les Réglages de l'extension ; testée en local
+- [x] Déployé sur Aiven Runtime (service `verifpol`, `startup-20-512`, branche `deploy` de `sebastiendero/aiven`) — voir `docs/DEPLOY.md`
 - [ ] Itérer les prompts sur 2-3 vraies vidéos — Lots B/C
 - [ ] Choisir et mettre en cache les vidéos de démo — Lot E
 

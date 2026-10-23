@@ -25,6 +25,7 @@ interface Page {
 }
 
 let backend = DEFAULT_BACKEND;
+let apiToken = ""; // clé d'accès d'un serveur hébergé (vide en local)
 let current: Page | undefined;
 let detecting: string | undefined; // page en cours de détection (plusieurs événements Chrome par navigation)
 let history: ChatRequest["messages"] = [];
@@ -33,8 +34,19 @@ let analyzing = 0; // analyses en cours (le bouton « Analyser » est désactiv�
 
 // --- Appels au serveur ---------------------------------------------------------
 
+/** Une clé d'accès ne part jamais en clair : https obligatoire, sauf vers ce Mac. */
+function assertSecureBackend(): void {
+  if (apiToken && !/^https:\/\//.test(backend) && !/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(backend)) {
+    throw new Error("Avec une clé d'accès, l'adresse du serveur doit commencer par https:// (Réglages).");
+  }
+}
+
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(backend + path, { ...init, headers: { "Content-Type": "application/json" } });
+  assertSecureBackend();
+  const res = await fetch(backend + path, {
+    ...init,
+    headers: { "Content-Type": "application/json", ...(apiToken && { "X-VerifPol-Token": apiToken }) },
+  });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error ?? `Serveur : HTTP ${res.status}`);
   return body as T;
@@ -206,8 +218,15 @@ async function autoCheck(page: Page, force = false, intro?: string): Promise<voi
       });
       const extracted = result as ExtractResult;
       if (extracted.ok) request = extracted.request;
-      else if (extracted.noTranscript && page.videoId) request = await transcribeAudio(page, msg);
-      else throw new Error(extracted.error);
+      else if (extracted.noTranscript && page.videoId) {
+        // Pas de panneau « Afficher la transcription » : on demande au lecteur ses sous-titres (auto compris),
+        // depuis le navigateur (YouTube ne le bloque pas, contrairement au serveur). Sinon : l'audio par le serveur.
+        msg.setText("Je récupère les sous-titres automatiques de YouTube…");
+        const segments = await playerCaptions(page.tabId);
+        request = segments.length
+          ? { source: { kind: "youtube", url: page.url, title: page.title }, segments }
+          : await transcribeAudio(page, msg);
+      } else throw new Error(extracted.error);
     }
     if (!request.segments.length) throw new Error("Je n'ai pas trouvé de texte à vérifier sur cette page.");
     msg.setText("J'extrais les affirmations et je les compare aux données officielles… (30 s à 2 min)");
@@ -224,6 +243,83 @@ async function autoCheck(page: Page, force = false, intro?: string): Promise<voi
   } finally {
     setAnalyzing(-1);
   }
+}
+
+/**
+ * Sous-titres du lecteur YouTube dans la langue d'origine de la vidéo (manuels ou automatiques), lus dans la page
+ * (monde MAIN, pour accéder au lecteur).
+ * Depuis 2025, YouTube renvoie une réponse vide si on les demande sans le jeton que le lecteur ajoute lui-même :
+ * on tente d'abord l'adresse directe, sinon on active brièvement les sous-titres et on rejoue la requête du lecteur.
+ */
+async function playerCaptions(tabId: number): Promise<Segment[]> {
+  const [{ result }] = await chrome.scripting.executeScript({
+    target: { tabId },
+    world: "MAIN",
+    func: async () => {
+      const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+      type Track = { baseUrl: string; languageCode: string; kind?: string };
+      const player = document.getElementById("movie_player") as (HTMLElement & {
+        getPlayerResponse?: () => any; getPlayerState?: () => number; playVideo?: () => void; pauseVideo?: () => void;
+      }) | null;
+      const list = player?.getPlayerResponse?.()?.captions?.playerCaptionsTracklistRenderer;
+      const tracks: Track[] = list?.captionTracks ?? [];
+      // Langue d'origine de la vidéo, jamais une traduction : piste par défaut déclarée pour la piste audio,
+      // sinon la piste automatique (toujours dans la langue parlée), sinon la première piste manuelle.
+      const audio = list?.audioTracks?.[list?.defaultAudioTrackIndex ?? 0];
+      const track = tracks[audio?.defaultCaptionTrackIndex ?? -1] ?? tracks.find((t) => t.kind === "asr") ?? tracks[0];
+      if (!track) return [];
+      const read = async (url: string) => {
+        const u = new URL(url, location.href);
+        u.searchParams.set("fmt", "json3");
+        u.searchParams.set("lang", track.languageCode);
+        u.searchParams.delete("tlang"); // pas de traduction automatique
+        if (track.kind === "asr") u.searchParams.set("kind", "asr");
+        else u.searchParams.delete("kind");
+        const body = await (await fetch(u.href)).text();
+        if (!body) return [];
+        const events = (JSON.parse(body).events ?? []) as { tStartMs?: number; segs?: { utf8?: string }[] }[];
+        return events.filter((e) => e.segs).map((e) => ({
+          start: Math.round((e.tStartMs ?? 0) / 100) / 10,
+          text: e.segs!.map((x) => x.utf8 ?? "").join("").replace(/\s+/g, " ").trim(),
+        })).filter((l) => l.text);
+      };
+      try {
+        const direct = await read(track.baseUrl);
+        if (direct.length) return direct;
+      } catch { /* on passe par le lecteur */ }
+      const before = new Set(performance.getEntriesByType("resource").map((e) => e.name));
+      const cc = document.querySelector<HTMLElement>(".ytp-subtitles-button");
+      const ccWasOn = cc?.getAttribute("aria-pressed") === "true";
+      const wasPlaying = player?.getPlayerState?.() === 1;
+      if (cc && ccWasOn) { cc.click(); await sleep(300); } // relancer la requête du lecteur
+      cc?.click();
+      if (!wasPlaying) player?.playVideo?.();
+      let signed: string | undefined;
+      for (let i = 0; i < 20 && !signed; i++) {
+        await sleep(400);
+        signed = performance.getEntriesByType("resource").map((e) => e.name)
+          .filter((n) => n.includes("/api/timedtext") && !before.has(n)).pop();
+      }
+      if (!wasPlaying) player?.pauseVideo?.();
+      if (!ccWasOn) cc?.click();
+      if (!signed) return [];
+      try {
+        return await read(signed);
+      } catch {
+        return [];
+      }
+    },
+  }).catch(() => [{ result: [] as Segment[] }]);
+  // Regroupe les lignes courtes en blocs de quelques phrases (comme pour le panneau de transcription).
+  const out: Segment[] = [];
+  let total = 0;
+  for (const line of (result as Segment[]) ?? []) {
+    if ((total += line.text.length) > 30_000) break;
+    const last = out.at(-1);
+    if (last && last.text.length < 400) last.text += " " + line.text;
+    else out.push({ ...line });
+  }
+  return out;
 }
 
 /** Vidéo sans texte lisible (YouTube sans sous-titres, TikTok, Instagram…) : le serveur télécharge l'audio et Deepgram le transcrit. */
@@ -330,7 +426,24 @@ async function toggleLive(menuStreamId?: string): Promise<void> {
   msg.body.classList.remove("pending");
   msg.body.append(status, feed, list);
   page.claims = [];
-  const ws = new WebSocket(`${backend.replace(/^http/, "ws")}/api/live`);
+  try {
+    assertSecureBackend();
+  } catch (err) {
+    msg.fail(explain(err));
+    stream?.getTracks().forEach((t) => t.stop());
+    if (audio) void audio.close();
+    return;
+  }
+  // La clé passe dans l'en-tête Sec-WebSocket-Protocol, jamais dans l'URL (lettres, chiffres, - . _ ~ seulement).
+  let ws: WebSocket;
+  try {
+    ws = new WebSocket(`${backend.replace(/^http/, "ws")}/api/live`, apiToken ? ["verifpol", apiToken] : ["verifpol"]);
+  } catch {
+    msg.fail("Clé d'accès invalide pour le direct : elle ne doit contenir que des lettres, des chiffres et - . _ ~ (Réglages).");
+    stream?.getTracks().forEach((t) => t.stop());
+    if (audio) void audio.close();
+    return;
+  }
   live = { page, ws, stream, audio, msg, status, feed, list, claims: page.claims };
   setLiveButton(true);
   const offset = await playbackTime(page.tabId);
@@ -637,7 +750,8 @@ async function ask(text: string): Promise<void> {
 function fitInput(): void {
   const input = $<HTMLTextAreaElement>("question");
   input.style.height = "auto";
-  input.style.height = `${Math.min(input.scrollHeight, 140)}px`;
+  // Vide : une seule ligne (la hauteur calculée avant l'affichage du panneau serait fausse).
+  if (input.value) input.style.height = `${Math.min(input.scrollHeight, 140)}px`;
   $<HTMLButtonElement>("send").disabled = busy || !input.value.trim();
 }
 
@@ -892,6 +1006,78 @@ function episodeCard(ep: WatchEpisode): HTMLElement {
   return card;
 }
 
+// --- Onglet « Profils » : fiabilité par personnalité (base Aiven, via le serveur) ---------------
+
+interface Profile {
+  id: string; name: string; party?: string | null; n_speeches: number; n_claims: number;
+  verdicts: Record<string, number>; reliability_score: number | null;
+}
+interface ProfileClaim {
+  quote: string; verdict: string; explanation: string; correction?: string | null; start?: number | null;
+  title?: string | null; url?: string | null; date?: string | null; sources: { title: string; url: string }[];
+}
+/** Les 6 verdicts internes du moteur ramenés aux 4 couleurs de l'extension. */
+const VERDICT_COLOR: Record<string, Verdict> = {
+  vrai: "vrai", plutot_vrai: "vrai", imprecis: "trompeur", trompeur: "trompeur", faux: "faux", inverifiable: "invérifiable",
+};
+const VERDICT_LABEL: Record<string, string> = {
+  vrai: "vrai", plutot_vrai: "plutôt vrai", imprecis: "imprécis", trompeur: "trompeur", faux: "faux", inverifiable: "invérifiable",
+};
+
+async function loadProfiles(): Promise<void> {
+  setStatus("profiles-status", "Chargement…");
+  try {
+    const list = (await api<Profile[]>("/api/politicians")).sort((a, b) => b.n_claims - a.n_claims);
+    setStatus("profiles-status", list.length ? "" : "Aucun profil pour l'instant : indiquez l'orateur (✎) sur une vidéo pour qu'elle compte dans son profil.");
+    $("profiles-meta").textContent = list.length ? `${list.length} personnalité${list.length > 1 ? "s" : ""}` : "";
+    $("profiles").replaceChildren(...list.map(profileCard));
+  } catch (err) {
+    setStatus("profiles-status", explain(err), true);
+  }
+}
+
+function profileCard(p: Profile): HTMLElement {
+  const total = Object.values(p.verdicts).reduce((a, b) => a + b, 0) || 1;
+  const order = ["vrai", "plutot_vrai", "imprecis", "trompeur", "faux", "inverifiable"];
+  const bar = el("div", { className: "bar", title: order.filter((v) => p.verdicts[v]).map((v) => `${VERDICT_LABEL[v]} : ${p.verdicts[v]}`).join(" · ") },
+    ...order.filter((v) => p.verdicts[v]).map((v) => el("span", { style: `--c:var(--${VERDICT_COLOR[v]});width:${(100 * p.verdicts[v]) / total}%` })));
+  const score = p.reliability_score === null
+    ? el("span", { className: "score" }, el("small", {}, `score dès 5 affirmations (${p.n_claims})`))
+    : el("span", { className: "score" }, `${Math.round(p.reliability_score)}`, el("small", {}, " /100"));
+  const body = el("div", { className: "profile-body" }, el("p", { className: "meta" }, "Chargement des affirmations…"));
+  const card = el("details", { className: "profile" },
+    el("summary", {},
+      el("div", { className: "profile-head" }, el("span", { className: "profile-name" }, p.name), score),
+      el("span", { className: "meta" }, [p.party, `${p.n_claims} affirmation${p.n_claims > 1 ? "s" : ""}`, `${p.n_speeches} source${p.n_speeches > 1 ? "s" : ""}`].filter(Boolean).join(" · ")),
+      bar),
+    body);
+  card.addEventListener("toggle", () => {
+    if (!card.open || card.dataset.loaded) return;
+    card.dataset.loaded = "1";
+    void api<ProfileClaim[]>(`/api/politicians/${encodeURIComponent(p.id)}/claims`).then((claims) => {
+      body.replaceChildren(el("ol", { className: "claims" }, ...claims.map(profileClaim)));
+    }).catch((err) => body.replaceChildren(el("p", { className: "status error" }, explain(err))));
+  });
+  return el("li", {}, card);
+}
+
+function profileClaim(c: ProfileClaim): HTMLElement {
+  const color = VERDICT_COLOR[c.verdict] ?? "invérifiable";
+  const row = el("summary", { className: "claim-row" },
+    el("span", { className: "badge", style: `--c:var(--${color})` }, VERDICT_LABEL[c.verdict] ?? c.verdict),
+    el("span", { className: "claim-quote" }, c.quote));
+  const open = c.url && isWebUrl(c.url) ? el("button", { className: "link" }, c.start != null ? `▶ ${formatTime(c.start)} · ${c.title ?? "la source"}` : c.title ?? "Ouvrir la source") : undefined;
+  open?.addEventListener("click", () => void openPage(c.url!, c.start ?? undefined));
+  return el("li", { className: "claim" }, el("details", { className: "claim-box" }, row,
+    el("div", { className: "claim-detail" },
+      el("p", { className: "meta" }, [c.date, c.title].filter(Boolean).join(" · ")),
+      el("p", { className: "explanation" }, c.explanation),
+      ...(c.correction ? [el("div", { className: "correction" }, el("strong", {}, "Correction"), el("p", {}, c.correction))] : []),
+      ...(c.sources.length ? [el("ul", { className: "sources" }, ...c.sources.filter((s) => isWebUrl(s.url)).map((s) =>
+        el("li", {}, el("a", { href: s.url, target: "_blank", rel: "noopener" }, s.title))))] : []),
+      ...(open ? [el("div", { className: "claim-actions" }, open)] : []))));
+}
+
 // --- Utilitaires ---------------------------------------------------------------
 
 function el<K extends keyof HTMLElementTagNameMap>(
@@ -930,10 +1116,14 @@ function formatTime(s: number): string {
 
 let watchTimer: ReturnType<typeof setInterval> | undefined;
 
-function showTab(name: "chat" | "watch"): void {
+type Tab = "chat" | "watch" | "profiles";
+
+function showTab(name: Tab): void {
   document.querySelectorAll<HTMLElement>(".tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === name));
   $("tab-chat").hidden = name !== "chat";
   $("tab-watch").hidden = name !== "watch";
+  $("tab-profiles").hidden = name !== "profiles";
+  if (name === "profiles") void loadProfiles();
   clearInterval(watchTimer);
   if (name === "watch") {
     void loadWatch();
@@ -966,8 +1156,15 @@ async function consumePendingSelection(): Promise<void> {
 // --- Démarrage -----------------------------------------------------------------
 
 async function init(): Promise<void> {
-  const stored = (await chrome.storage.sync.get("backend")) as { backend?: string };
+  const stored = (await chrome.storage.sync.get(["backend", "apiToken"])) as { backend?: string; apiToken?: string };
   backend = stored.backend || DEFAULT_BACKEND;
+  apiToken = stored.apiToken ?? "";
+  const tokenInput = $<HTMLInputElement>("token");
+  tokenInput.value = apiToken;
+  tokenInput.addEventListener("change", () => {
+    apiToken = tokenInput.value.trim();
+    void chrome.storage.sync.set({ apiToken });
+  });
   const input = $<HTMLInputElement>("backend");
   input.value = backend;
   input.addEventListener("change", () => {
@@ -975,7 +1172,7 @@ async function init(): Promise<void> {
     void chrome.storage.sync.set({ backend });
   });
 
-  document.querySelectorAll<HTMLElement>(".tab").forEach((t) => t.addEventListener("click", () => showTab(t.dataset.tab as "chat" | "watch")));
+  document.querySelectorAll<HTMLElement>(".tab").forEach((t) => t.addEventListener("click", () => showTab(t.dataset.tab as Tab)));
 
   $("ask").addEventListener("submit", (e) => { e.preventDefault(); void ask($<HTMLTextAreaElement>("question").value); });
   $("question").addEventListener("input", fitInput);

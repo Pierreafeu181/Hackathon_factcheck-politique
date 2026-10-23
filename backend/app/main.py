@@ -113,6 +113,12 @@ def politicians():
     return db.list_politicians()
 
 
+@app.get("/politicians/{pid}/claims")
+def politician_claims(pid: str, limit: int = 50):
+    """Dernières affirmations vérifiées d'une personnalité (onglet Profils de l'extension)."""
+    return db.claims_for(pid, min(max(limit, 1), 200))
+
+
 @app.get("/politicians/{pid}", response_model=PoliticianProfile)
 def politician(pid: str):
     p = db.profile(pid)

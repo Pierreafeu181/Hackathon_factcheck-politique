@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { serve } from "@hono/node-server";
 import { type Context, Hono } from "hono";
@@ -31,12 +32,22 @@ const app = new Hono();
 // Pas de CORS : l'extension a les droits d'accès au serveur, les sites web non.
 // Exiger du JSON force une requête de vérification préalable (CORS) qu'un site web ne peut pas passer :
 // sans ça, une page pourrait poster du texte brut vers localhost et empoisonner le cache.
-// On refuse aussi tout Host autre que localhost (DNS rebinding) et toute origine qui n'est pas une extension.
+// On refuse toute origine qui n'est pas une extension.
+// En local : seulement le Host localhost (contre le DNS rebinding).
+// Hébergé (API_TOKEN défini) : n'importe quel Host, mais chaque requête doit porter la clé d'accès,
+// en en-tête X-VerifPol-Token, ou dans Sec-WebSocket-Protocol pour le direct (« verifpol, <clé> ») :
+// un navigateur ne peut pas poser d'autre en-tête sur un WebSocket, et une clé dans l'URL finirait dans les journaux.
 const allowedHosts = new Set([`localhost:${port}`, `127.0.0.1:${port}`, `[::1]:${port}`]);
+const apiToken = process.env.API_TOKEN ?? "";
+// Empreintes SHA-256 de longueur fixe : timingSafeEqual lève une erreur sur des longueurs différentes.
+const digest = (v: string) => createHash("sha256").update(v).digest();
+const tokenOk = (given: string | null | undefined) => !!given && !!apiToken && timingSafeEqual(digest(given), digest(apiToken));
+const accessOk = (host: string | undefined, origin: string | undefined, token: string | null | undefined) =>
+  (!origin || origin.startsWith("chrome-extension://")) && (apiToken ? tokenOk(token) : allowedHosts.has(host ?? ""));
 app.use("/api/*", async (c, next) => {
-  const origin = c.req.header("origin");
-  if (!allowedHosts.has(c.req.header("host") ?? "") || (origin && !origin.startsWith("chrome-extension://"))) {
-    return c.json({ error: "Accès réservé à l'extension." }, 403);
+  if (c.req.path === "/api/health" && c.req.method === "GET") return next(); // sonde de l'hébergeur
+  if (!accessOk(c.req.header("host"), c.req.header("origin"), c.req.header("x-verifpol-token"))) {
+    return c.json({ error: apiToken ? "Clé d'accès manquante ou invalide (Réglages du panneau)." : "Accès réservé à l'extension." }, 403);
   }
   if (c.req.method === "POST" && !c.req.header("content-type")?.startsWith("application/json")) {
     return c.json({ error: "Content-Type application/json requis." }, 415);
@@ -107,6 +118,25 @@ const transcribe = async (c: Context) => {
 app.post("/api/transcribe", transcribe);
 app.post("/api/transcribe-youtube", transcribe);
 
+/** Profils (lecture seule) : relayés vers le moteur Python, à côté de CHECKER_URL. */
+const engine = (path: string) => process.env.CHECKER_URL ? new URL(path, process.env.CHECKER_URL).href : "";
+const relay = async (c: Context, path: string) => {
+  const url = engine(path);
+  if (!url) return c.json([], 200); // moteur de démo : pas de profils
+  try {
+    const res = await fetch(url);
+    return c.json(await res.json(), res.ok ? 200 : 502);
+  } catch (err) {
+    return c.json({ error: (err as Error).message }, 502);
+  }
+};
+const SLUG = /^[a-z0-9-]{1,120}$/;
+app.get("/api/politicians", (c) => relay(c, "/politicians"));
+app.get("/api/politicians/:id/claims", async (c) => {
+  if (!SLUG.test(c.req.param("id"))) return c.json({ error: "Identifiant invalide." }, 400);
+  return relay(c, `/politicians/${c.req.param("id")}/claims`);
+});
+
 app.get("/api/watch", (c) => c.json(watcher.snapshot()));
 
 app.post("/api/watch/refresh", (c) => {
@@ -126,5 +156,6 @@ attachLive(server, {
   deepgramKey: process.env.DEEPGRAM_API_KEY || undefined,
   model: process.env.DEEPGRAM_MODEL || "nova-3",
   check,
-  allowed: (req) => allowedHosts.has(req.headers.host ?? "") && (req.headers.origin ?? "").startsWith("chrome-extension://"),
+  allowed: (req) => (req.headers.origin ?? "").startsWith("chrome-extension://") &&
+    accessOk(req.headers.host, req.headers.origin, (req.headers["sec-websocket-protocol"] ?? "").split(",").map((p) => p.trim())[1]),
 });

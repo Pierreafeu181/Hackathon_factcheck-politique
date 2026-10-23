@@ -1,7 +1,8 @@
 """Outils de vérification sur les données ouvertes, en plus de l'INSEE (insee_api.py) et de l'Assemblée (assemblee.py).
 
-Sans clé : Eurostat (comparaisons européennes), data.gouv.fr (catalogue + API tabulaire : délinquance,
-immigration, éducation, santé…), Banque mondiale (comparaisons internationales), Wikipédia (contexte, repli).
+Sans clé : Eurostat (comparaisons européennes), data.gouv.fr (producteurs publics certifiés uniquement :
+délinquance, immigration, éducation, santé…), Banque mondiale (comparaisons internationales).
+Pas de Wikipédia ni de source modifiable par tous : seulement des producteurs officiels ou des fact-checks publiés.
 Avec clé (activés seulement si la variable est définie dans backend/.env) :
 Google Fact Check Tools (GOOGLE_FACTCHECK_API_KEY), Légifrance via PISTE (PISTE_CLIENT_ID / PISTE_CLIENT_SECRET).
 
@@ -120,21 +121,36 @@ def eurostat_read(dataset: str, filters: dict | None = None, countries: list[str
 
 # ---------------------------------------------------------------- data.gouv.fr
 
+# Sur data.gouv.fr, n'importe qui peut publier. On ne garde que les producteurs publics certifiés :
+# ministères, opérateurs, collectivités (badges « certified » + « public-service » ou « local-authority »).
+PUBLIC_BADGES = {"public-service", "local-authority"}
+
+
+def _certified_public(org: dict | None) -> bool:
+    kinds = {b.get("kind") for b in (org or {}).get("badges", [])}
+    return "certified" in kinds and bool(kinds & PUBLIC_BADGES)
+
+
 def datagouv_search(keywords: str) -> dict:
-    d = _get(f"https://www.data.gouv.fr/api/1/datasets/?{urllib.parse.urlencode({'q': keywords, 'page_size': 6})}")
-    out = []
-    for ds in d.get("data", []):
-        out.append({
-            "titre": ds["title"], "producteur": (ds.get("organization") or {}).get("name"),
-            "mis_a_jour": (ds.get("last_update") or "")[:10], "url": ds.get("page"),
-            "ressources": [{"id": r["id"], "titre": r["title"][:120], "format": r.get("format")}
-                           for r in ds.get("resources", [])[:8]],
-        })
-    return {"jeux": out, "conseil": "Lire une ressource CSV/XLSX avec datagouv_lire_ressource (id de ressource)."}
+    d = _get(f"https://www.data.gouv.fr/api/1/datasets/?{urllib.parse.urlencode({'q': keywords, 'page_size': 30})}")
+    kept = [ds for ds in d.get("data", []) if _certified_public(ds.get("organization"))]
+    out = [{
+        "titre": ds["title"], "producteur": ds["organization"].get("name"),
+        "mis_a_jour": (ds.get("last_update") or "")[:10], "url": ds.get("page"),
+        "ressources": [{"id": r["id"], "titre": r["title"][:120], "format": r.get("format")} for r in ds.get("resources", [])[:8]],
+    } for ds in kept[:6]]
+    return {"jeux": out, "ecartes_non_officiels": len(d.get("data", [])) - len(kept),
+            "conseil": "Lire une ressource CSV/XLSX avec datagouv_lire_ressource (id de ressource)."}
 
 
 def datagouv_read(resource_id: str, filters: dict | None = None, page_size: int = 30) -> dict:
-    base = f"https://tabular-api.data.gouv.fr/api/resources/{urllib.parse.quote(resource_id)}"
+    rid = urllib.parse.quote(resource_id)
+    # Même règle à la lecture : la ressource doit appartenir à un jeu d'un producteur public certifié.
+    dataset_id = _get(f"https://www.data.gouv.fr/api/2/datasets/resources/{rid}/").get("dataset_id")
+    dataset = _get(f"https://www.data.gouv.fr/api/1/datasets/{urllib.parse.quote(str(dataset_id))}/") if dataset_id else {}
+    if not _certified_public(dataset.get("organization")):
+        raise SourceError("ressource écartée : son producteur n'est pas un organisme public certifié")
+    base = f"https://tabular-api.data.gouv.fr/api/resources/{rid}"
     params = {"page_size": str(min(int(page_size or 30), 50))}
     for col, val in (filters or {}).items():
         params[f"{col}__exact"] = str(val)
@@ -182,21 +198,6 @@ def worldbank_read(indicator: str, countries: list[str] | None = None, since: st
     return {"indicateur": d[1][0]["indicator"]["value"], "lignes": rows[:200],
             **({} if rows else {"note": "aucune valeur publiée pour ces pays et ces années : essayer un autre indicateur ou Eurostat"}),
             "url": f"https://donnees.banquemondiale.org/indicateur/{indicator}"}
-
-
-# ---------------------------------------------------------------- Wikipédia (repli, contexte)
-
-def wikipedia_search(query: str) -> dict:
-    api = "https://fr.wikipedia.org/w/api.php"
-    s = _get(f"{api}?{urllib.parse.urlencode({'action': 'query', 'list': 'search', 'srsearch': query, 'srlimit': 3, 'format': 'json'})}")
-    titles = [h["title"] for h in s.get("query", {}).get("search", [])]
-    if not titles:
-        return {"pages": []}
-    e = _get(f"{api}?{urllib.parse.urlencode({'action': 'query', 'prop': 'extracts', 'exintro': 1, 'explaintext': 1, 'exchars': 1500, 'titles': '|'.join(titles), 'format': 'json'})}")
-    pages = [{"titre": p["title"], "extrait": p.get("extract", ""),
-              "url": "https://fr.wikipedia.org/wiki/" + urllib.parse.quote(p["title"].replace(" ", "_"))}
-             for p in e.get("query", {}).get("pages", {}).values()]
-    return {"pages": pages, "avertissement": "Wikipédia est une source secondaire : préférer la source primaire qu'elle cite."}
 
 
 # ---------------------------------------------------------------- Google Fact Check Tools (clé)
