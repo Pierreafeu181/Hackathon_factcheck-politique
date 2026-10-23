@@ -25,8 +25,9 @@ export class CheckCache {
    * l'analyse est aussi enregistrée pour la vidéo entière, et réutilisée quel que soit le texte reçu.
    */
   async get(req: CheckRequest, run: () => Promise<CheckResponse>, force = false, trusted = true): Promise<CheckResponse> {
-    const text = createHash("sha256").update(req.segments.map((s) => s.text).join("\n")).digest("hex").slice(0, 16);
-    const exact = `${req.source.url}|${req.politician?.name ?? ""}|${text}`;
+    // Empreinte de toute la requête envoyée au moteur (texte, moments, titre, orateur, parti, date…).
+    const canonical = JSON.stringify([req.source, req.segments, req.politician ?? null, req.date ?? null]);
+    const exact = `${req.source.url}|${createHash("sha256").update(canonical).digest("hex")}`;
     const video = `${req.source.url}|*`;
     if (!force) {
       const hit = this.entries[exact] ?? this.entries[video];
