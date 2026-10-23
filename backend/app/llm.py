@@ -1,7 +1,7 @@
 """Client LLM unique du projet. Ne pas instancier de client Gemini ou Anthropic ailleurs.
 
 Deux fournisseurs, choisis par LLM_PROVIDER (défaut : gemini si GEMINI_API_KEY est défini, sinon anthropic) :
-- gemini : Gemini Flash, offre gratuite (modèle : GEMINI_MODEL, défaut gemini-3.5-flash-lite, secours gemini-3.8-flash). Pas de recherche
+- gemini : Gemini Flash, offre gratuite (modèle : GEMINI_MODEL, défaut gemini-3.5-flash-lite, secours gemini-3.1-flash-lite ; gemini-3.8-flash : 20 requêtes/jour en gratuit). Pas de recherche
   Google sur l'offre gratuite : la vérification passe par nos outils de données ouvertes (tools.py).
   Appels limités en parallèle et relancés automatiquement quand le quota par minute est atteint.
 - anthropic : Claude (LLM_MODEL, défaut claude-sonnet-5-5), avec sa recherche web. Gardé pour le jour
@@ -96,7 +96,7 @@ def _gemini():
         return _gemini_client
 
 
-FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-3.8-flash")
+FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-3.1-flash-lite")
 _fallback_until = 0.0
 
 
