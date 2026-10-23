@@ -246,7 +246,8 @@ async function autoCheck(page: Page, force = false, intro?: string): Promise<voi
 }
 
 /**
- * Sous-titres du lecteur YouTube (manuels ou automatiques), lus dans la page (monde MAIN, pour accéder au lecteur).
+ * Sous-titres du lecteur YouTube dans la langue d'origine de la vidéo (manuels ou automatiques), lus dans la page
+ * (monde MAIN, pour accéder au lecteur).
  * Depuis 2025, YouTube renvoie une réponse vide si on les demande sans le jeton que le lecteur ajoute lui-même :
  * on tente d'abord l'adresse directe, sinon on active brièvement les sous-titres et on rejoue la requête du lecteur.
  */
@@ -260,15 +261,20 @@ async function playerCaptions(tabId: number): Promise<Segment[]> {
       const player = document.getElementById("movie_player") as (HTMLElement & {
         getPlayerResponse?: () => any; getPlayerState?: () => number; playVideo?: () => void; pauseVideo?: () => void;
       }) | null;
-      const tracks: Track[] = player?.getPlayerResponse?.()?.captions?.playerCaptionsTracklistRenderer?.captionTracks ?? [];
-      const track = tracks.find((t) => t.languageCode.startsWith("fr") && t.kind !== "asr")
-        ?? tracks.find((t) => t.languageCode.startsWith("fr")) ?? tracks[0];
+      const list = player?.getPlayerResponse?.()?.captions?.playerCaptionsTracklistRenderer;
+      const tracks: Track[] = list?.captionTracks ?? [];
+      // Langue d'origine de la vidéo, jamais une traduction : piste par défaut déclarée pour la piste audio,
+      // sinon la piste automatique (toujours dans la langue parlée), sinon la première piste manuelle.
+      const audio = list?.audioTracks?.[list?.defaultAudioTrackIndex ?? 0];
+      const track = tracks[audio?.defaultCaptionTrackIndex ?? -1] ?? tracks.find((t) => t.kind === "asr") ?? tracks[0];
       if (!track) return [];
       const read = async (url: string) => {
         const u = new URL(url, location.href);
         u.searchParams.set("fmt", "json3");
         u.searchParams.set("lang", track.languageCode);
-        u.searchParams.delete("tlang");
+        u.searchParams.delete("tlang"); // pas de traduction automatique
+        if (track.kind === "asr") u.searchParams.set("kind", "asr");
+        else u.searchParams.delete("kind");
         const body = await (await fetch(u.href)).text();
         if (!body) return [];
         const events = (JSON.parse(body).events ?? []) as { tStartMs?: number; segs?: { utf8?: string }[] }[];
