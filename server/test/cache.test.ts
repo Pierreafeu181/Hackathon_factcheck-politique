@@ -80,5 +80,7 @@ test("quota journalier : par client et au total", () => {
   assert.equal(clientIp("1.2.3.4, 203.0.113.5", "10.0.0.1"), "203.0.113.5"); // « 1.2.3.4 » écrit par le client : ignoré
   assert.equal(clientIp("1.2.3.4, 203.0.113.5, 10.0.0.2", "10.0.0.1"), "203.0.113.5"); // proxy interne sauté
   assert.equal(clientIp("203.0.113.5, ::ffff:172.20.0.3, 10.1.2.3", undefined), "203.0.113.5");
+  assert.equal(clientIp("pas-une-ip", "10.0.0.9"), "10.0.0.9"); // valeur invalide : adresse de la connexion
+  assert.equal(clientIp("8.8.8.8, 10.0.0.1, 10.0.0.2, 10.0.0.3, 10.0.0.4", "10.0.0.9"), "10.0.0.9"); // trop de sauts
   assert.equal(clientIp(undefined, "127.0.0.1"), "127.0.0.1");
 });

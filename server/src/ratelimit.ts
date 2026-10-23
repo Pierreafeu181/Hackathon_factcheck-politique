@@ -1,3 +1,5 @@
+import { isIP } from "node:net";
+
 /**
  * Quotas journaliers en mémoire, par client et au total. Accès public (sans clé) : protège les quotas
  * Gemini, le crédit Deepgram et le crédit Aiven contre un usage abusif. Remis à zéro chaque jour (UTC).
@@ -35,8 +37,12 @@ const PRIVATE = /^(10\.|127\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|10
  * X-Forwarded-For ; les proxys ajoutent à la fin. On lit donc depuis la droite en sautant les adresses
  * de réseau privé (proxys internes) : la première adresse publique est celle du visiteur.
  */
-export function clientIp(forwarded: string | undefined, direct: string | undefined): string {
+export function clientIp(forwarded: string | undefined, direct: string | undefined, maxHops = 3): string {
   const chain = (forwarded ?? "").split(",").map((s) => s.trim().replace(/^::ffff:/, "")).filter(Boolean);
-  for (let i = chain.length - 1; i >= 0; i--) if (!PRIVATE.test(chain[i])) return chain[i];
-  return chain[0] || direct || "inconnu";
+  // Au plus `maxHops` proxys internes sautés ; jamais l'élément le plus à gauche par défaut (écrit par le client).
+  for (let i = chain.length - 1, hops = 0; i >= 0 && hops <= maxHops; i--, hops++) {
+    if (!isIP(chain[i])) return direct || "inconnu";
+    if (!PRIVATE.test(chain[i])) return chain[i];
+  }
+  return direct || "inconnu";
 }
