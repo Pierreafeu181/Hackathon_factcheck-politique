@@ -1,22 +1,22 @@
 # Vérif'Pol: fact-checking French politicians against official data
 
-A Chrome extension and a local engine that check what politicians say, in videos, articles and podcasts, against official statistics, and show a verdict, a correction and the source.
+A Chrome extension and an engine hosted on Aiven that check what politicians say, in videos, articles and podcasts, against official statistics, and show a verdict, a correction and the source.
 
 ## The data layer in action
 
-**What data.** What politicians say: YouTube captions and press articles read in the browser, or audio (videos without captions, TikTok, Reels, X, radio podcasts) transcribed by Deepgram. What is true: 15 INSEE/DARES employment series frozen from the INSEE API, the full INSEE catalogue queried live by Claude (inflation, debt, GDP…), and web search as a last resort.
+**What data.** What politicians say: YouTube captions and press articles read in the browser, or audio (videos without captions, TikTok, Reels, X, radio podcasts) transcribed by Deepgram. What is true: official producers only. 15 INSEE/DARES employment series frozen from the INSEE API, plus live tools the model calls itself: the full INSEE catalogue (inflation, debt, GDP…), Eurostat, World Bank, data.gouv.fr (certified public producers only) and every vote of the Assemblée nationale. No Wikipedia, blogs or social networks as evidence.
 
-**Where it lives.** Aiven PostgreSQL stores every speech, transcript, claim and verification (verdict, official value, sources), which builds a reliability profile per politician. A local cache avoids re-analysing a page; the user's history stays in the browser.
+**Where it lives.** Aiven PostgreSQL stores every speech, transcript, claim and verification (verdict, official value, sources), which builds a reliability profile per politician (Profiles tab). The engine runs on Aiven Runtime next to the database; a cache avoids re-analysing a page; the user's history stays in the browser.
 
 **How it flows.**
 
 ```mermaid title="Data flow" page=portrait
 flowchart LR
-  A[Chrome extension<br/>captions · articles] --> B[Local server<br/>cache · Deepgram]
-  B --> C[Claude extracts claims]
+  A[Chrome extension<br/>captions · articles · live] --> B[Server on Aiven<br/>cache · Deepgram]
+  B --> C[Gemini extracts claims]
   C --> D{Official series?}
   D -- yes --> E[Code compares<br/>with INSEE value]
-  D -- no --> F[Claude: live INSEE<br/>or web search]
+  D -- no --> F[Gemini + official tools<br/>INSEE · Eurostat · Assemblée]
   E --> G[(Aiven PostgreSQL)]
   F --> G
   G --> H[Verdict + sources<br/>back in the panel]
@@ -28,14 +28,12 @@ Numbers are compared in code, not by the LLM, whenever an official series exists
 
 ## Evidence it works
 
-**Benchmark against a naive baseline.** 10 political claims dated 22 October 2026, whose answer is set by the latest official INSEE / DARES figures. Baseline: the same model (Claude Sonnet 5.5) with no data and no tools. Script: `scripts/benchmark.py`.
+**Benchmark against a naive baseline.** 10 political claims dated 22 October 2026, whose answer is set by the latest official INSEE / DARES figures. Baseline: the same model with no data and no tools. Run with two engines. Script: `scripts/benchmark.py`.
 
-| | Vérif'Pol | Naive baseline |
-|---|---|---|
-| Correct verdicts | **10/10** | 3/10 |
-| Verdicts backed by an official source | **10/10** | 0/10 |
-| Before / after the bound fix | 9/10 → **10/10** | — |
-| Average time per claim | 14 s | 2 s |
+| Engine | Vérif'Pol | Naive baseline | Official source | Time per claim |
+|---|---|---|---|---|
+| Claude Sonnet 5.5 | **10/10** (9/10 before the bound fix) | 3/10 | **10/10** vs 0/10 | 14 s |
+| Gemini 3.5 Flash-Lite (free tier, in production) | **10/10** | 6/10 | **10/10** vs 0/10 | 55 s |
 
 | Claim (translated) | Truth (official figure) | Vérif'Pol | Baseline |
 |---|---|---|---|
