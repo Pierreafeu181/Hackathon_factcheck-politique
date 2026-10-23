@@ -9,6 +9,8 @@ const options = {
   format: "iife",
   target: "chrome120",
   logLevel: "info",
+  // Adresse du serveur par défaut : VERIFPOL_BACKEND=https://… npm run build:ext (sinon le serveur local).
+  define: { __DEFAULT_BACKEND__: JSON.stringify(process.env.VERIFPOL_BACKEND || "http://localhost:8790") },
 };
 
 mkdirSync("dist", { recursive: true });

@@ -7,7 +7,8 @@ import type {
 import type { ExtractResult } from "./extract.ts";
 import { guessFromTitle } from "./speaker.ts";
 
-const DEFAULT_BACKEND = "http://localhost:8790";
+declare const __DEFAULT_BACKEND__: string; // fixé au build (extension/build.mjs)
+const DEFAULT_BACKEND = __DEFAULT_BACKEND__;
 const WATCH_REFRESH_MS = 15_000;
 const TIME_POLL_MS = 2_000;
 
