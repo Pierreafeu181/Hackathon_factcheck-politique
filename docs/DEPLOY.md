@@ -14,7 +14,8 @@ le moteur Python n'écoute qu'à l'intérieur du conteneur. La base est Aiven Po
 
 | Variable | Rôle |
 |---|---|
-| `API_TOKEN` | **Obligatoire.** Clé d'accès partagée avec l'extension (sans elle, le conteneur refuse de démarrer). Générer : `openssl rand -hex 24` |
+| `PUBLIC_ACCESS` | `1` = extension utilisable **sans clé**, avec quotas journaliers par IP et au total (`LIMIT_CHECKS=40/400`, `LIMIT_CHATS=100/1000`, `LIMIT_TRANSCRIBE=10/100`, `LIMIT_LIVE=5/30`) |
+| `API_TOKEN` | Clé d'accès. Sans `PUBLIC_ACCESS`, obligatoire pour chaque requête ; avec, clé d'administration qui ignore les quotas (pré-analyse de la démo). Le conteneur refuse de démarrer sans l'un ni l'autre. Générer : `openssl rand -hex 24` |
 | `GEMINI_API_KEY` | Modèle (offre gratuite Gemini) |
 | `DEEPGRAM_API_KEY` | Transcription (podcasts, vidéos sans sous-titres, direct) |
 | `DATABASE_URL` | Aiven PostgreSQL. Sur Aiven Applications, l'injecter par une intégration `pg` plutôt qu'en clair |

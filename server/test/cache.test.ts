@@ -55,3 +55,16 @@ test("sans orateur, une analyse déjà faite pour la même vidéo est réutilis�
   assert.equal(ran, false);
   assert.deepEqual(second, first);
 });
+
+import { DailyLimiter, clientIp } from "../src/ratelimit.ts";
+
+test("quota journalier : par client et au total", () => {
+  const l = new DailyLimiter(2, 3);
+  assert.equal(l.take("a"), true);
+  assert.equal(l.take("a"), true);
+  assert.equal(l.take("a"), false); // limite du client
+  assert.equal(l.take("b"), true);
+  assert.equal(l.take("c"), false); // limite globale
+  assert.equal(clientIp("203.0.113.5, 10.0.0.1", "10.0.0.1"), "203.0.113.5");
+  assert.equal(clientIp(undefined, "127.0.0.1"), "127.0.0.1");
+});

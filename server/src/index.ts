@@ -8,6 +8,7 @@ import { chat, check } from "./checker.ts";
 import { mergeSegments, transcribeAudio } from "./deepgram.ts";
 import type { Feed } from "./rss.ts";
 import { attachLive } from "./live.ts";
+import { clientIp, DailyLimiter } from "./ratelimit.ts";
 import { Watcher } from "./watcher.ts";
 import { downloadAudio, mediaUrl, YOUTUBE_ID } from "./media-audio.ts";
 
@@ -37,17 +38,33 @@ const app = new Hono();
 // Hébergé (API_TOKEN défini) : n'importe quel Host, mais chaque requête doit porter la clé d'accès,
 // en en-tête X-VerifPol-Token, ou dans Sec-WebSocket-Protocol pour le direct (« verifpol, <clé> ») :
 // un navigateur ne peut pas poser d'autre en-tête sur un WebSocket, et une clé dans l'URL finirait dans les journaux.
+// Accès public (PUBLIC_ACCESS=1) : pas de clé, mais des quotas journaliers par IP et au total ; la clé API_TOKEN,
+// si elle est fournie, sert alors de clé d'administration (sans quotas, ex. pré-analyse de la démo).
 const allowedHosts = new Set([`localhost:${port}`, `127.0.0.1:${port}`, `[::1]:${port}`]);
 const apiToken = process.env.API_TOKEN ?? "";
 // Empreintes SHA-256 de longueur fixe : timingSafeEqual lève une erreur sur des longueurs différentes.
 const digest = (v: string) => createHash("sha256").update(v).digest();
 const tokenOk = (given: string | null | undefined) => !!given && !!apiToken && timingSafeEqual(digest(given), digest(apiToken));
+const publicAccess = process.env.PUBLIC_ACCESS === "1";
 const accessOk = (host: string | undefined, origin: string | undefined, token: string | null | undefined) =>
-  (!origin || origin.startsWith("chrome-extension://")) && (apiToken ? tokenOk(token) : allowedHosts.has(host ?? ""));
+  (!origin || origin.startsWith("chrome-extension://")) &&
+  (tokenOk(token) || publicAccess || (!apiToken && allowedHosts.has(host ?? "")));
+/** Quotas de l'accès public, réglables : LIMIT_CHECKS=40/400 (par IP / au total, par jour). */
+const limiter = (name: string, perIp: number, total: number) => {
+  const [a, b] = (process.env[`LIMIT_${name}`] ?? "").split("/").map(Number);
+  return new DailyLimiter(a || perIp, b || total);
+};
+const limits = { check: limiter("CHECKS", 40, 400), chat: limiter("CHATS", 100, 1000),
+  transcribe: limiter("TRANSCRIBE", 10, 100), live: limiter("LIVE", 5, 30) };
+/** true si la requête peut passer : admin (clé valide), accès local, ou quota public disponible. */
+const withinQuota = (kind: keyof typeof limits, token: string | null | undefined, ip: string) =>
+  !publicAccess || tokenOk(token) || limits[kind].take(ip);
+const quotaError = { error: "Limite d'utilisation du jour atteinte pour ce service gratuit. Réessayez demain." };
+const ipOf = (c: Context) => clientIp(c.req.header("x-forwarded-for"), undefined);
 app.use("/api/*", async (c, next) => {
   if (c.req.path === "/api/health" && c.req.method === "GET") return next(); // sonde de l'hébergeur
   if (!accessOk(c.req.header("host"), c.req.header("origin"), c.req.header("x-verifpol-token"))) {
-    return c.json({ error: apiToken ? "Clé d'accès manquante ou invalide (Réglages du panneau)." : "Accès réservé à l'extension." }, 403);
+    return c.json({ error: apiToken && !publicAccess ? "Clé d'accès manquante ou invalide (Réglages du panneau)." : "Accès réservé à l'extension." }, 403);
   }
   if (c.req.method === "POST" && !c.req.header("content-type")?.startsWith("application/json")) {
     return c.json({ error: "Content-Type application/json requis." }, 415);
@@ -64,7 +81,16 @@ app.post("/api/check", async (c) => {
   const req = await c.req.json<CheckRequest>();
   if (!req?.segments?.length) return c.json({ error: "Aucun texte à analyser." }, 400);
   try {
-    return c.json(await cache.get(req, () => check(req), c.req.query("force") === "1"));
+    const token = c.req.header("x-verifpol-token"), ip = ipOf(c);
+    let overQuota = false;
+    const res = await cache.get(req, async () => {
+      if (!withinQuota("check", token, ip)) {
+        overQuota = true;
+        return { claims: [], demo: true }; // non mis en cache (demo)
+      }
+      return check(req);
+    }, c.req.query("force") === "1" && (!publicAccess || tokenOk(token))); // ?force=1 réservé à l'admin en public
+    return overQuota ? c.json(quotaError, 429) : c.json(res);
   } catch (err) {
     return c.json({ error: (err as Error).message }, 502);
   }
@@ -73,6 +99,7 @@ app.post("/api/check", async (c) => {
 app.post("/api/chat", async (c) => {
   const req = await c.req.json<ChatRequest>();
   if (!req?.messages?.length) return c.json({ error: "Aucune question." }, 400);
+  if (!withinQuota("chat", c.req.header("x-verifpol-token"), ipOf(c))) return c.json(quotaError, 429);
   try {
     return c.json(await chat(req));
   } catch (err) {
@@ -100,6 +127,7 @@ const transcribe = async (c: Context) => {
   if (!key) return c.json({ error: "La transcription audio n'est pas activée (DEEPGRAM_API_KEY manquante dans server/.env)." }, 503);
   const cached = transcripts.get(url);
   if (cached) return c.json({ segments: cached });
+  if (!withinQuota("transcribe", c.req.header("x-verifpol-token"), ipOf(c))) return c.json(quotaError, 429);
   const job = transcribing.then(async () => {
     const { audio, contentType } = await downloadAudio(url);
     return mergeSegments(await transcribeAudio(audio, contentType, key, process.env.DEEPGRAM_MODEL || "nova-3"));
@@ -156,6 +184,11 @@ attachLive(server, {
   deepgramKey: process.env.DEEPGRAM_API_KEY || undefined,
   model: process.env.DEEPGRAM_MODEL || "nova-3",
   check,
-  allowed: (req) => (req.headers.origin ?? "").startsWith("chrome-extension://") &&
-    accessOk(req.headers.host, req.headers.origin, (req.headers["sec-websocket-protocol"] ?? "").split(",").map((p) => p.trim())[1]),
+  allowed: (req) => {
+    const token = (req.headers["sec-websocket-protocol"] ?? "").split(",").map((p) => p.trim())[1];
+    const forwarded = req.headers["x-forwarded-for"];
+    const ip = clientIp(Array.isArray(forwarded) ? forwarded[0] : forwarded, req.socket.remoteAddress);
+    return (req.headers.origin ?? "").startsWith("chrome-extension://") &&
+      accessOk(req.headers.host, req.headers.origin, token) && withinQuota("live", token, ip);
+  },
 });

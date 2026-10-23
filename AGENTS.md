@@ -133,6 +133,7 @@ python scripts/fetch_insee.py
 - [x] Aiven PostgreSQL branché (`DATABASE_URL`) : tables créées, analyses écrites et relues depuis Aiven
 - [x] Image Docker d'hébergement (`Dockerfile`, `deploy/start.sh`, `docs/DEPLOY.md`) + clé d'accès `API_TOKEN` côté serveur et dans les Réglages de l'extension ; testée en local
 - [x] Déployé sur Aiven Runtime (service `verifpol`, `startup-20-512`, branche `deploy` de `sebastiendero/aiven`) — voir `docs/DEPLOY.md`
+- [x] Accès libre sans clé (`PUBLIC_ACCESS=1`) avec quotas journaliers par IP et au total ; `API_TOKEN` devient une clé d'administration ; zip d'installation de l'extension (`VERIFPOL_BACKEND=… npm run build:ext`) — Lot A
 - [ ] Itérer les prompts sur 2-3 vraies vidéos — Lots B/C
 - [ ] Choisir et mettre en cache les vidéos de démo — Lot E
 
