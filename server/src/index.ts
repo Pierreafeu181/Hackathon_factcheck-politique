@@ -1,4 +1,4 @@
-import { timingSafeEqual } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { serve } from "@hono/node-server";
 import { type Context, Hono } from "hono";
@@ -35,11 +35,13 @@ const app = new Hono();
 // On refuse toute origine qui n'est pas une extension.
 // En local : seulement le Host localhost (contre le DNS rebinding).
 // Hébergé (API_TOKEN défini) : n'importe quel Host, mais chaque requête doit porter la clé d'accès,
-// en en-tête X-VerifPol-Token (ou ?token= pour le WebSocket du direct, qui ne peut pas poser d'en-tête).
+// en en-tête X-VerifPol-Token, ou dans Sec-WebSocket-Protocol pour le direct (« verifpol, <clé> ») :
+// un navigateur ne peut pas poser d'autre en-tête sur un WebSocket, et une clé dans l'URL finirait dans les journaux.
 const allowedHosts = new Set([`localhost:${port}`, `127.0.0.1:${port}`, `[::1]:${port}`]);
 const apiToken = process.env.API_TOKEN ?? "";
-const tokenOk = (given: string | null | undefined) =>
-  !!given && given.length === apiToken.length && timingSafeEqual(Buffer.from(given), Buffer.from(apiToken));
+// Empreintes SHA-256 de longueur fixe : timingSafeEqual lève une erreur sur des longueurs différentes.
+const digest = (v: string) => createHash("sha256").update(v).digest();
+const tokenOk = (given: string | null | undefined) => !!given && !!apiToken && timingSafeEqual(digest(given), digest(apiToken));
 const accessOk = (host: string | undefined, origin: string | undefined, token: string | null | undefined) =>
   (!origin || origin.startsWith("chrome-extension://")) && (apiToken ? tokenOk(token) : allowedHosts.has(host ?? ""));
 app.use("/api/*", async (c, next) => {
@@ -136,5 +138,5 @@ attachLive(server, {
   model: process.env.DEEPGRAM_MODEL || "nova-3",
   check,
   allowed: (req) => (req.headers.origin ?? "").startsWith("chrome-extension://") &&
-    accessOk(req.headers.host, req.headers.origin, new URL(req.url ?? "/", "http://x").searchParams.get("token")),
+    accessOk(req.headers.host, req.headers.origin, (req.headers["sec-websocket-protocol"] ?? "").split(",").map((p) => p.trim())[1]),
 });

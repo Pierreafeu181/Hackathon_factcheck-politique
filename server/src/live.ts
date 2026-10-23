@@ -61,15 +61,21 @@ export class Batcher {
 }
 
 export function attachLive(server: { on(event: "upgrade", cb: (req: IncomingMessage, socket: Duplex, head: Buffer) => void): unknown }, opts: LiveOptions): void {
-  const wss = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
+  // Le client annonce « verifpol, <clé> » ; on ne renvoie que « verifpol » (la clé ne repart jamais).
+  const wss = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024,
+    handleProtocols: (protocols) => (protocols.has("verifpol") ? "verifpol" : false) });
   let active = 0;
   server.on("upgrade", (req, socket, head) => {
-    if (new URL(req.url ?? "/", "http://x").pathname !== "/api/live") return socket.destroy();
-    if (!opts.allowed(req)) {
-      socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
-      return socket.destroy();
+    try {
+      if (new URL(req.url ?? "/", "http://x").pathname !== "/api/live") return socket.destroy();
+      if (!opts.allowed(req)) {
+        socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+        return socket.destroy();
+      }
+      wss.handleUpgrade(req, socket, head, (ws) => session(ws));
+    } catch {
+      socket.destroy(); // une requête malformée ne doit jamais faire tomber le serveur
     }
-    wss.handleUpgrade(req, socket, head, (ws) => session(ws));
   });
 
   function session(client: WebSocket): void {

@@ -34,7 +34,15 @@ let analyzing = 0; // analyses en cours (le bouton « Analyser » est désactiv�
 
 // --- Appels au serveur ---------------------------------------------------------
 
+/** Une clé d'accès ne part jamais en clair : https obligatoire, sauf vers ce Mac. */
+function assertSecureBackend(): void {
+  if (apiToken && !/^https:\/\//.test(backend) && !/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(backend)) {
+    throw new Error("Avec une clé d'accès, l'adresse du serveur doit commencer par https:// (Réglages).");
+  }
+}
+
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  assertSecureBackend();
   const res = await fetch(backend + path, {
     ...init,
     headers: { "Content-Type": "application/json", ...(apiToken && { "X-VerifPol-Token": apiToken }) },
@@ -334,7 +342,24 @@ async function toggleLive(menuStreamId?: string): Promise<void> {
   msg.body.classList.remove("pending");
   msg.body.append(status, feed, list);
   page.claims = [];
-  const ws = new WebSocket(`${backend.replace(/^http/, "ws")}/api/live${apiToken ? `?token=${encodeURIComponent(apiToken)}` : ""}`);
+  try {
+    assertSecureBackend();
+  } catch (err) {
+    msg.fail(explain(err));
+    stream?.getTracks().forEach((t) => t.stop());
+    if (audio) void audio.close();
+    return;
+  }
+  // La clé passe dans l'en-tête Sec-WebSocket-Protocol, jamais dans l'URL (lettres, chiffres, - . _ ~ seulement).
+  let ws: WebSocket;
+  try {
+    ws = new WebSocket(`${backend.replace(/^http/, "ws")}/api/live`, apiToken ? ["verifpol", apiToken] : ["verifpol"]);
+  } catch {
+    msg.fail("Clé d'accès invalide pour le direct : elle ne doit contenir que des lettres, des chiffres et - . _ ~ (Réglages).");
+    stream?.getTracks().forEach((t) => t.stop());
+    if (audio) void audio.close();
+    return;
+  }
   live = { page, ws, stream, audio, msg, status, feed, list, claims: page.claims };
   setLiveButton(true);
   const offset = await playbackTime(page.tabId);
