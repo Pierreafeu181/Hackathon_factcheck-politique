@@ -18,6 +18,7 @@
       <nav>
         <button class="tab active" data-tab="chat">Chat</button>
         <button class="tab" data-tab="watch">Veille</button>
+        <button class="tab" data-tab="profiles">Profils</button>
       </nav>
     </header>
 
@@ -54,6 +55,16 @@
       <p class="meta"><span id="watch-meta"></span></p>
       <p id="watch-status" class="status"></p>
       <ol id="episodes" class="episodes"></ol>
+    </section>
+
+    <section id="tab-profiles" hidden>
+      <div class="section-head">
+        <h2>Fiabilité par personnalité</h2>
+        <span id="profiles-meta" class="meta"></span>
+      </div>
+      <p class="empty">Score sur 100 calculé à partir des verdicts (vrai 1, plutôt vrai 0,75, imprécis 0,5, trompeur 0,25, faux 0), affiché dès 5 affirmations vérifiées. On juge des affirmations, jamais des personnes.</p>
+      <p id="profiles-status" class="status"></p>
+      <ol id="profiles" class="history"></ol>
     </section>
 
     <footer>

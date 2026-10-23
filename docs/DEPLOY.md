@@ -3,6 +3,13 @@
 Une seule image Docker (`Dockerfile` à la racine) : le serveur Node est public sur `$PORT` (8080 par défaut),
 le moteur Python n'écoute qu'à l'intérieur du conteneur. La base est Aiven PostgreSQL (`pg-cd8988f`).
 
+## En production
+
+- Service Aiven Runtime **`verifpol`** (projet `factcheck`, `aws-eu-west-1`, plan `startup-20-512`, ~12 $/mois),
+  construit depuis la branche **`deploy`** de `sebastiendero/aiven`. Base : intégration avec `pg-cd8988f`.
+- Mettre à jour : pousser sur `deploy`, puis relancer le déploiement (console Aiven ou outil `aiven_application_redeploy`).
+- Les variables `API_TOKEN`, `GEMINI_API_KEY`, `DEEPGRAM_API_KEY` sont des secrets du service (console Aiven).
+
 ## Variables d'environnement
 
 | Variable | Rôle |

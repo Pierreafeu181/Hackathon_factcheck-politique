@@ -118,6 +118,25 @@ const transcribe = async (c: Context) => {
 app.post("/api/transcribe", transcribe);
 app.post("/api/transcribe-youtube", transcribe);
 
+/** Profils (lecture seule) : relayés vers le moteur Python, à côté de CHECKER_URL. */
+const engine = (path: string) => process.env.CHECKER_URL ? new URL(path, process.env.CHECKER_URL).href : "";
+const relay = async (c: Context, path: string) => {
+  const url = engine(path);
+  if (!url) return c.json([], 200); // moteur de démo : pas de profils
+  try {
+    const res = await fetch(url);
+    return c.json(await res.json(), res.ok ? 200 : 502);
+  } catch (err) {
+    return c.json({ error: (err as Error).message }, 502);
+  }
+};
+const SLUG = /^[a-z0-9-]{1,120}$/;
+app.get("/api/politicians", (c) => relay(c, "/politicians"));
+app.get("/api/politicians/:id/claims", async (c) => {
+  if (!SLUG.test(c.req.param("id"))) return c.json({ error: "Identifiant invalide." }, 400);
+  return relay(c, `/politicians/${c.req.param("id")}/claims`);
+});
+
 app.get("/api/watch", (c) => c.json(watcher.snapshot()));
 
 app.post("/api/watch/refresh", (c) => {

@@ -87,7 +87,14 @@ def main() -> None:
     # registre d'outils et recherche par pertinence (sans réseau)
     from . import open_data, tools
     names = {t["name"] for t in tools.available()}
-    assert {"insee_lire_serie", "eurostat_lire", "datagouv_chercher", "assemblee_votes", "wikipedia"} <= names, names
+    assert {"insee_lire_serie", "eurostat_lire", "datagouv_chercher", "assemblee_votes"} <= names, names
+    assert "wikipedia" not in names  # source modifiable par tous : exclue
+    assert open_data._certified_public({"badges": [{"kind": "certified"}, {"kind": "public-service"}]})
+    assert not open_data._certified_public({"badges": [{"kind": "certified"}]})  # certifiée mais pas publique (entreprise…)
+    assert not open_data._certified_public(None)  # particulier
+    from .verify import unreliable
+    assert unreliable("https://fr.wikipedia.org/wiki/Dette") and unreliable("https://x.com/a/status/1")
+    assert not unreliable("https://www.insee.fr/fr/statistiques/serie/001688527")
     assert ("legifrance_chercher" in names) == bool(os.getenv("PISTE_CLIENT_ID"))
     ranked = open_data._rank([("a", "Impôts et cotisations sociales"), ("b", "Population"), ("c", "Impôt sur le revenu")],
                              "impôts cotisations", key=lambda x: x[1])

@@ -1006,6 +1006,78 @@ function episodeCard(ep: WatchEpisode): HTMLElement {
   return card;
 }
 
+// --- Onglet « Profils » : fiabilité par personnalité (base Aiven, via le serveur) ---------------
+
+interface Profile {
+  id: string; name: string; party?: string | null; n_speeches: number; n_claims: number;
+  verdicts: Record<string, number>; reliability_score: number | null;
+}
+interface ProfileClaim {
+  quote: string; verdict: string; explanation: string; correction?: string | null; start?: number | null;
+  title?: string | null; url?: string | null; date?: string | null; sources: { title: string; url: string }[];
+}
+/** Les 6 verdicts internes du moteur ramenés aux 4 couleurs de l'extension. */
+const VERDICT_COLOR: Record<string, Verdict> = {
+  vrai: "vrai", plutot_vrai: "vrai", imprecis: "trompeur", trompeur: "trompeur", faux: "faux", inverifiable: "invérifiable",
+};
+const VERDICT_LABEL: Record<string, string> = {
+  vrai: "vrai", plutot_vrai: "plutôt vrai", imprecis: "imprécis", trompeur: "trompeur", faux: "faux", inverifiable: "invérifiable",
+};
+
+async function loadProfiles(): Promise<void> {
+  setStatus("profiles-status", "Chargement…");
+  try {
+    const list = (await api<Profile[]>("/api/politicians")).sort((a, b) => b.n_claims - a.n_claims);
+    setStatus("profiles-status", list.length ? "" : "Aucun profil pour l'instant : indiquez l'orateur (✎) sur une vidéo pour qu'elle compte dans son profil.");
+    $("profiles-meta").textContent = list.length ? `${list.length} personnalité${list.length > 1 ? "s" : ""}` : "";
+    $("profiles").replaceChildren(...list.map(profileCard));
+  } catch (err) {
+    setStatus("profiles-status", explain(err), true);
+  }
+}
+
+function profileCard(p: Profile): HTMLElement {
+  const total = Object.values(p.verdicts).reduce((a, b) => a + b, 0) || 1;
+  const order = ["vrai", "plutot_vrai", "imprecis", "trompeur", "faux", "inverifiable"];
+  const bar = el("div", { className: "bar", title: order.filter((v) => p.verdicts[v]).map((v) => `${VERDICT_LABEL[v]} : ${p.verdicts[v]}`).join(" · ") },
+    ...order.filter((v) => p.verdicts[v]).map((v) => el("span", { style: `--c:var(--${VERDICT_COLOR[v]});width:${(100 * p.verdicts[v]) / total}%` })));
+  const score = p.reliability_score === null
+    ? el("span", { className: "score" }, el("small", {}, `score dès 5 affirmations (${p.n_claims})`))
+    : el("span", { className: "score" }, `${Math.round(p.reliability_score)}`, el("small", {}, " /100"));
+  const body = el("div", { className: "profile-body" }, el("p", { className: "meta" }, "Chargement des affirmations…"));
+  const card = el("details", { className: "profile" },
+    el("summary", {},
+      el("div", { className: "profile-head" }, el("span", { className: "profile-name" }, p.name), score),
+      el("span", { className: "meta" }, [p.party, `${p.n_claims} affirmation${p.n_claims > 1 ? "s" : ""}`, `${p.n_speeches} source${p.n_speeches > 1 ? "s" : ""}`].filter(Boolean).join(" · ")),
+      bar),
+    body);
+  card.addEventListener("toggle", () => {
+    if (!card.open || card.dataset.loaded) return;
+    card.dataset.loaded = "1";
+    void api<ProfileClaim[]>(`/api/politicians/${encodeURIComponent(p.id)}/claims`).then((claims) => {
+      body.replaceChildren(el("ol", { className: "claims" }, ...claims.map(profileClaim)));
+    }).catch((err) => body.replaceChildren(el("p", { className: "status error" }, explain(err))));
+  });
+  return el("li", {}, card);
+}
+
+function profileClaim(c: ProfileClaim): HTMLElement {
+  const color = VERDICT_COLOR[c.verdict] ?? "invérifiable";
+  const row = el("summary", { className: "claim-row" },
+    el("span", { className: "badge", style: `--c:var(--${color})` }, VERDICT_LABEL[c.verdict] ?? c.verdict),
+    el("span", { className: "claim-quote" }, c.quote));
+  const open = c.url && isWebUrl(c.url) ? el("button", { className: "link" }, c.start != null ? `▶ ${formatTime(c.start)} · ${c.title ?? "la source"}` : c.title ?? "Ouvrir la source") : undefined;
+  open?.addEventListener("click", () => void openPage(c.url!, c.start ?? undefined));
+  return el("li", { className: "claim" }, el("details", { className: "claim-box" }, row,
+    el("div", { className: "claim-detail" },
+      el("p", { className: "meta" }, [c.date, c.title].filter(Boolean).join(" · ")),
+      el("p", { className: "explanation" }, c.explanation),
+      ...(c.correction ? [el("div", { className: "correction" }, el("strong", {}, "Correction"), el("p", {}, c.correction))] : []),
+      ...(c.sources.length ? [el("ul", { className: "sources" }, ...c.sources.filter((s) => isWebUrl(s.url)).map((s) =>
+        el("li", {}, el("a", { href: s.url, target: "_blank", rel: "noopener" }, s.title))))] : []),
+      ...(open ? [el("div", { className: "claim-actions" }, open)] : []))));
+}
+
 // --- Utilitaires ---------------------------------------------------------------
 
 function el<K extends keyof HTMLElementTagNameMap>(
@@ -1044,10 +1116,14 @@ function formatTime(s: number): string {
 
 let watchTimer: ReturnType<typeof setInterval> | undefined;
 
-function showTab(name: "chat" | "watch"): void {
+type Tab = "chat" | "watch" | "profiles";
+
+function showTab(name: Tab): void {
   document.querySelectorAll<HTMLElement>(".tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === name));
   $("tab-chat").hidden = name !== "chat";
   $("tab-watch").hidden = name !== "watch";
+  $("tab-profiles").hidden = name !== "profiles";
+  if (name === "profiles") void loadProfiles();
   clearInterval(watchTimer);
   if (name === "watch") {
     void loadWatch();
@@ -1096,7 +1172,7 @@ async function init(): Promise<void> {
     void chrome.storage.sync.set({ backend });
   });
 
-  document.querySelectorAll<HTMLElement>(".tab").forEach((t) => t.addEventListener("click", () => showTab(t.dataset.tab as "chat" | "watch")));
+  document.querySelectorAll<HTMLElement>(".tab").forEach((t) => t.addEventListener("click", () => showTab(t.dataset.tab as Tab)));
 
   $("ask").addEventListener("submit", (e) => { e.preventDefault(); void ask($<HTMLTextAreaElement>("question").value); });
   $("question").addEventListener("input", fitInput);

@@ -160,3 +160,19 @@ def profile(pid: str) -> PoliticianProfile | None:
 
 def dump_transcript(segments) -> str:
     return json.dumps([s.model_dump() for s in segments], ensure_ascii=False)
+
+
+def claims_for(pid: str, limit: int = 50) -> list[dict]:
+    """Dernières affirmations vérifiées d'une personnalité, pour l'onglet Profils de l'extension."""
+    with connect() as c:
+        rows = c.execute(
+            "SELECT c.quote, c.timestamp_start, c.category, s.title, s.url, s.date, s.analyzed_at, v.verdict, v.data AS vdata "
+            "FROM claims c JOIN speeches s ON s.id = c.speech_id JOIN verifications v ON v.claim_id = c.id "
+            "WHERE c.politician_id = ? ORDER BY s.analyzed_at DESC, c.timestamp_start LIMIT ?", (pid, limit)).fetchall()
+    out = []
+    for r in rows:
+        v = Verification.model_validate_json(r["vdata"])
+        out.append({"quote": r["quote"], "verdict": r["verdict"], "category": r["category"], "explanation": v.explanation,
+                    "correction": v.correction, "sources": [{"title": f"{s.publisher} – {s.title}", "url": s.url} for s in v.sources],
+                    "start": r["timestamp_start"], "title": r["title"], "url": r["url"], "date": r["date"] or str(r["analyzed_at"])[:10]})
+    return out
