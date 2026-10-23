@@ -218,8 +218,15 @@ async function autoCheck(page: Page, force = false, intro?: string): Promise<voi
       });
       const extracted = result as ExtractResult;
       if (extracted.ok) request = extracted.request;
-      else if (extracted.noTranscript && page.videoId) request = await transcribeAudio(page, msg);
-      else throw new Error(extracted.error);
+      else if (extracted.noTranscript && page.videoId) {
+        // Pas de panneau « Afficher la transcription » : on demande au lecteur ses sous-titres (auto compris),
+        // depuis le navigateur (YouTube ne le bloque pas, contrairement au serveur). Sinon : l'audio par le serveur.
+        msg.setText("Je récupère les sous-titres automatiques de YouTube…");
+        const segments = await playerCaptions(page.tabId);
+        request = segments.length
+          ? { source: { kind: "youtube", url: page.url, title: page.title }, segments }
+          : await transcribeAudio(page, msg);
+      } else throw new Error(extracted.error);
     }
     if (!request.segments.length) throw new Error("Je n'ai pas trouvé de texte à vérifier sur cette page.");
     msg.setText("J'extrais les affirmations et je les compare aux données officielles… (30 s à 2 min)");
@@ -236,6 +243,77 @@ async function autoCheck(page: Page, force = false, intro?: string): Promise<voi
   } finally {
     setAnalyzing(-1);
   }
+}
+
+/**
+ * Sous-titres du lecteur YouTube (manuels ou automatiques), lus dans la page (monde MAIN, pour accéder au lecteur).
+ * Depuis 2025, YouTube renvoie une réponse vide si on les demande sans le jeton que le lecteur ajoute lui-même :
+ * on tente d'abord l'adresse directe, sinon on active brièvement les sous-titres et on rejoue la requête du lecteur.
+ */
+async function playerCaptions(tabId: number): Promise<Segment[]> {
+  const [{ result }] = await chrome.scripting.executeScript({
+    target: { tabId },
+    world: "MAIN",
+    func: async () => {
+      const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+      type Track = { baseUrl: string; languageCode: string; kind?: string };
+      const player = document.getElementById("movie_player") as (HTMLElement & {
+        getPlayerResponse?: () => any; getPlayerState?: () => number; playVideo?: () => void; pauseVideo?: () => void;
+      }) | null;
+      const tracks: Track[] = player?.getPlayerResponse?.()?.captions?.playerCaptionsTracklistRenderer?.captionTracks ?? [];
+      const track = tracks.find((t) => t.languageCode.startsWith("fr") && t.kind !== "asr")
+        ?? tracks.find((t) => t.languageCode.startsWith("fr")) ?? tracks[0];
+      if (!track) return [];
+      const read = async (url: string) => {
+        const u = new URL(url, location.href);
+        u.searchParams.set("fmt", "json3");
+        u.searchParams.set("lang", track.languageCode);
+        u.searchParams.delete("tlang");
+        const body = await (await fetch(u.href)).text();
+        if (!body) return [];
+        const events = (JSON.parse(body).events ?? []) as { tStartMs?: number; segs?: { utf8?: string }[] }[];
+        return events.filter((e) => e.segs).map((e) => ({
+          start: Math.round((e.tStartMs ?? 0) / 100) / 10,
+          text: e.segs!.map((x) => x.utf8 ?? "").join("").replace(/\s+/g, " ").trim(),
+        })).filter((l) => l.text);
+      };
+      try {
+        const direct = await read(track.baseUrl);
+        if (direct.length) return direct;
+      } catch { /* on passe par le lecteur */ }
+      const before = new Set(performance.getEntriesByType("resource").map((e) => e.name));
+      const cc = document.querySelector<HTMLElement>(".ytp-subtitles-button");
+      const ccWasOn = cc?.getAttribute("aria-pressed") === "true";
+      const wasPlaying = player?.getPlayerState?.() === 1;
+      if (cc && ccWasOn) { cc.click(); await sleep(300); } // relancer la requête du lecteur
+      cc?.click();
+      if (!wasPlaying) player?.playVideo?.();
+      let signed: string | undefined;
+      for (let i = 0; i < 20 && !signed; i++) {
+        await sleep(400);
+        signed = performance.getEntriesByType("resource").map((e) => e.name)
+          .filter((n) => n.includes("/api/timedtext") && !before.has(n)).pop();
+      }
+      if (!wasPlaying) player?.pauseVideo?.();
+      if (!ccWasOn) cc?.click();
+      if (!signed) return [];
+      try {
+        return await read(signed);
+      } catch {
+        return [];
+      }
+    },
+  }).catch(() => [{ result: [] as Segment[] }]);
+  // Regroupe les lignes courtes en blocs de quelques phrases (comme pour le panneau de transcription).
+  const out: Segment[] = [];
+  let total = 0;
+  for (const line of (result as Segment[]) ?? []) {
+    if ((total += line.text.length) > 30_000) break;
+    const last = out.at(-1);
+    if (last && last.text.length < 400) last.text += " " + line.text;
+    else out.push({ ...line });
+  }
+  return out;
 }
 
 /** Vidéo sans texte lisible (YouTube sans sous-titres, TikTok, Instagram…) : le serveur télécharge l'audio et Deepgram le transcrit. */
