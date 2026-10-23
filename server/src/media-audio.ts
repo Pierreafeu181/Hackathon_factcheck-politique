@@ -99,6 +99,9 @@ function run(bin: string, args: string[]): Promise<void> {
 
 /** Messages d'erreur yt-dlp les plus courants, en clair. */
 function explainYtdlp(stderr: string): string {
+  if (/not a bot|confirm you.?re not|sign in to confirm/i.test(stderr)) {
+    return "YouTube bloque les téléchargements depuis les serveurs hébergés";
+  }
   if (/log ?in|cookies|private|authentication/i.test(stderr)) {
     return "vidéo privée ou réservée aux comptes connectés ; voir YTDLP_COOKIES_FROM_BROWSER dans server/.env.example";
   }
