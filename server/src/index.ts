@@ -75,6 +75,10 @@ app.use("/api/*", async (c, next) => {
   await next();
 });
 
+// Politique de confidentialité publique (exigée par le Chrome Web Store), hors de /api donc sans clé ni quota.
+const privacyHtml = readFileSync(new URL("../privacy.html", import.meta.url), "utf8");
+app.get("/privacy", (c) => c.html(privacyHtml));
+
 app.get("/api/health", (c) => c.json({ ok: true, checker: process.env.CHECKER_URL ? "équipe" : "démo" }));
 
 const cache = new CheckCache(new URL("../data/check-cache.json", import.meta.url).pathname);
