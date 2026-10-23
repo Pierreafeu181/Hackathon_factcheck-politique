@@ -25,6 +25,10 @@ app = FastAPI(title="FactCheck Politique", version="0.1.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])  # hackathon : extension Chrome
 db.init()
 
+from . import assemblee  # noqa: E402
+
+assemblee.prewarm()  # votes de l'Assemblée : téléchargés et indexés en arrière-plan
+
 
 @app.get("/health")
 def health():

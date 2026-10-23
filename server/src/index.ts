@@ -6,6 +6,7 @@ import { CheckCache } from "./cache.ts";
 import { chat, check } from "./checker.ts";
 import { mergeSegments, transcribeAudio } from "./deepgram.ts";
 import type { Feed } from "./rss.ts";
+import { attachLive } from "./live.ts";
 import { Watcher } from "./watcher.ts";
 import { downloadAudio, mediaUrl, YOUTUBE_ID } from "./media-audio.ts";
 
@@ -113,9 +114,17 @@ app.post("/api/watch/refresh", (c) => {
   return c.json({ ok: true });
 });
 
-serve({ fetch: app.fetch, port, hostname: process.env.HOST ?? "127.0.0.1" }, () => {
+const server = serve({ fetch: app.fetch, port, hostname: process.env.HOST ?? "127.0.0.1" }, () => {
   console.log(`Serveur prêt sur http://localhost:${port}`);
   console.log(`Analyse : ${process.env.CHECKER_URL ? process.env.CHECKER_URL : "moteur de démo"}`);
   console.log(`Transcription Deepgram : ${process.env.DEEPGRAM_API_KEY ? "activée" : "désactivée (pas de DEEPGRAM_API_KEY)"}`);
   watcher.start(Number(process.env.POLL_MINUTES ?? 15));
+});
+
+// Direct : WebSocket /api/live, mêmes garde-fous que l'API (Host localhost, origine = l'extension).
+attachLive(server, {
+  deepgramKey: process.env.DEEPGRAM_API_KEY || undefined,
+  model: process.env.DEEPGRAM_MODEL || "nova-3",
+  check,
+  allowed: (req) => allowedHosts.has(req.headers.host ?? "") && (req.headers.origin ?? "").startsWith("chrome-extension://"),
 });

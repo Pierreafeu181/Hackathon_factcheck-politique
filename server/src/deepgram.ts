@@ -16,7 +16,7 @@ export function transcribeUrl(audioUrl: string, apiKey: string, model = "nova-3"
 
 /** Transcrit un fichier audio déjà téléchargé (ex. piste audio d'une vidéo YouTube sans sous-titres). */
 export function transcribeAudio(audio: Uint8Array, contentType: string, apiKey: string, model = "nova-3"): Promise<Segment[]> {
-  return listen(audio, contentType, apiKey, model);
+  return listen(new Blob([new Uint8Array(audio)]), contentType, apiKey, model);
 }
 
 async function listen(body: BodyInit, contentType: string, apiKey: string, model: string): Promise<Segment[]> {

@@ -43,7 +43,10 @@ backend/                 ← MOTEUR D'ANALYSE Python / FastAPI, port 8000
   app/extract.py         ← LLM : texte → affirmations structurées
   app/verify.py          ← routeur de vérification (référentiel → web)
   app/referentiel.py     ← séries officielles + comparaison DÉTERMINISTE
-  app/llm.py             ← client Claude unique (modèle, fallbacks, boucle d'outils web + INSEE)
+  app/llm.py             ← client LLM unique : Gemini (défaut) ou Claude, sortie structurée, boucle d'outils
+  app/tools.py           ← registre des outils de vérification exposés au modèle
+  app/open_data.py       ← Eurostat, data.gouv.fr, Banque mondiale, Wikipédia, Google Fact Check*, Légifrance* (*clé)
+  app/assemblee.py       ← votes de l'Assemblée nationale (open data officiel, indexé au démarrage)
   app/insee_api.py       ← outils Claude : API BDM de l'INSEE en direct (thèmes → séries → observations)
   app/db.py              ← SQLite (politicians, speeches, claims, verifications) + profils
   app/prompts/*.md       ← prompts système (à itérer ici, pas dans le code)
@@ -63,7 +66,7 @@ docs/                    ← plan, architecture, contrat, méthodologie, sources
 3. **Toujours une source.** Un verdict autre que `invérifiable` avec une liste de sources vide est un bug.
 4. **Neutralité.** On juge des **affirmations**, jamais des personnes. Pas de mot « fake », « menteur », etc. dans l'UI ni dans les prompts. Voir `docs/METHODOLOGIE.md`.
 5. **Pas de secret dans le repo.** Les clés vont dans `backend/.env` et `server/.env`, ignorés par git. Les modèles de fichier sont les `.env.example`.
-6. **Modèle LLM** : centralisé dans `backend/app/llm.py` (`claude-opus-5-5` par défaut, modifiable via `LLM_MODEL`). N'instancie pas de client Anthropic ailleurs.
+6. **Modèle LLM** : centralisé dans `backend/app/llm.py`. **Gemini Flash (offre gratuite) par défaut** (`GEMINI_API_KEY`, `GEMINI_MODEL`), Claude en option (`LLM_PROVIDER=anthropic`) faute de crédits. N'instancie aucun client LLM ailleurs. Les sources de vérification sont des outils déclarés dans `backend/app/tools.py`.
 7. **Démo d'abord.** Tout ce qui ne sert pas la démo va dans `docs/ROADMAP.md`.
 8. **Un lot = des fichiers distincts** (voir §5). Commits petits et fréquents, `git pull --rebase` avant de pousser.
 
@@ -122,7 +125,12 @@ python scripts/fetch_insee.py
 - [x] Vidéos YouTube sans sous-titres : le serveur Node télécharge l'audio (yt-dlp) et le fait transcrire par Deepgram (`/api/transcribe-youtube`) — Lot A
 - [x] Panneau façon ChatGPT : verdicts en liste dépliable, filtres par verdict, onglet Veille avec résumé faux/trompeur de la session (dédoublonné) et historique des pages analysées (`chrome.storage.local`) — Lot A
 - [x] Analyse automatique des articles de presse (og:type / JSON-LD NewsArticle) et des vidéos de toutes plateformes (TikTok, Instagram, X, Facebook, Dailymotion, Vimeo, Twitch, france.tv…) via `/api/transcribe` ; suggestions de questions qui tournent — Lot A
-- [ ] Google Fact Check Tools en première étape de vérification — Lot C
+- [x] Direct : bouton « ● Direct », son de l'onglet (chrome.tabCapture) → WebSocket `/api/live` → Deepgram en streaming → analyse toutes les ~45 s de parole. Marche sur n'importe quel site, y compris connecté — Lot A
+- [x] Garde-fous du chat : hors sujet (code, devoirs…), consignes de vote et injections refusés (`prompts/chat.md`)
+- [x] Passage à Gemini Flash (offre gratuite), Claude en option — `llm.py`
+- [x] Sources de vérification : Eurostat, data.gouv.fr, Banque mondiale, votes de l'Assemblée nationale, Wikipédia ; Google Fact Check et Légifrance dès que leurs clés sont dans `.env` — Lot C
+- [ ] Banque de France (clé du portail développeur) et OCDE (API refusée, 403)
+- [x] Pipeline complet testé sur Gemini 3.5 Flash-Lite (gratuit) : benchmark 10/10 (Claude seul 3/10, Gemini seul 6/10), vidéo réelle en 14 s, chat avec les votes de l'Assemblée. `gemini-3.8-flash` n'a que 20 requêtes/jour en gratuit : il sert de secours
 - [ ] Itérer les prompts sur 2-3 vraies vidéos — Lots B/C
 - [ ] Choisir et mettre en cache les vidéos de démo — Lot E
 
@@ -145,5 +153,6 @@ Quand tu termines une tâche, **coche-la ici** dans ton commit.
 - **France entière vs hors Mayotte**, **CVS** : à toujours préciser dans la note des sources.
 - **Périodes** : « depuis 2017 » = moyenne annuelle 2017 comparée au dernier point publié (voir `docs/METHODOLOGIE.md`).
 - **Ports** : moteur Python sur 8000, serveur Node sur 8790. L'extension parle au serveur Node, qui parle au moteur Python.
-- **Claude Opus 5.5** : pas de `temperature`, pas de `budget_tokens`, pas de prefill ; utiliser `output_config.effort`. L'outil serveur de recherche web est `web_search_20260209`. Tout est encapsulé dans `app/llm.py`.
+- **Gemini, offre gratuite** : pas de recherche Google (payante) → la vérification hors INSEE passe par nos outils (`tools.py`). Quota par minute : `llm.py` limite les appels parallèles (`GEMINI_MAX_PARALLEL`) et relance sur 429. Les échanges peuvent servir à Google pour améliorer ses modèles.
+- **Claude** (si `LLM_PROVIDER=anthropic`) : pas de `temperature`, pas de `budget_tokens`, pas de prefill ; utiliser `output_config.effort`. Recherche web `web_search_20260209`.
 - **Windows** : chemins longs → `git config core.longpaths true`.

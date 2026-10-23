@@ -3,9 +3,32 @@
   "name": "Vérif'Pol",
   "version": "0.1.0",
   "description": "Vérifie les affirmations des responsables politiques français, sources officielles à l'appui.",
-  "action": { "default_title": "Vérif'Pol" },
-  "side_panel": { "default_path": "sidepanel.html" },
-  "background": { "service_worker": "background.js" },
-  "permissions": ["sidePanel", "contextMenus", "scripting", "storage", "tabs"],
-  "host_permissions": ["<all_urls>"]
+  "action": {
+    "default_title": "Vérif'Pol"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": [
+    "sidePanel",
+    "contextMenus",
+    "scripting",
+    "storage",
+    "tabs",
+    "tabCapture"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "commands": {
+    "direct": {
+      "suggested_key": {
+        "default": "Alt+Shift+L"
+      },
+      "description": "Vérifier en direct le son de l'onglet"
+    }
+  }
 }

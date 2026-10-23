@@ -5,7 +5,7 @@
 
 ## État actuel (branche de Sébastien, fusionnée)
 - **Extension TS** (`npm run build:ext` → `extension/dist`) : onglets « Cette page » et « Veille », extraction d'article (Readability) ou de transcript YouTube horodaté (`src/extract.ts`), vérification d'une sélection au clic droit, saut vidéo qui gère les pubs.
-- **Serveur Node** (port 8790) : `/api/check` relayé vers `CHECKER_URL` (sinon moteur de démo), `/api/watch` (veille RSS, transcription Deepgram des podcasts), `/api/transcribe` (vidéo YouTube sans sous-titres ou d'une autre plateforme : audio téléchargé par yt-dlp + ffmpeg, transcrit par Deepgram, une transcription à la fois, adresses locales refusées, gardée en mémoire). L'extension analyse seule les vidéos et les articles de presse ; les autres pages ont un bouton « Analyser la page ».
+- **Serveur Node** (port 8790) : `/api/check` relayé vers `CHECKER_URL` (sinon moteur de démo), `/api/watch` (veille RSS, transcription Deepgram des podcasts), `/api/transcribe` (vidéo YouTube sans sous-titres ou d'une autre plateforme : audio téléchargé par yt-dlp + ffmpeg, transcrit par Deepgram, une transcription à la fois, adresses locales refusées, gardée en mémoire). WebSocket `/api/live` : direct (son de l'onglet capté par l'extension, relayé à Deepgram en streaming, passages de ~45 s envoyés au moteur, une session à la fois, 2 h max). L'extension analyse seule les vidéos et les articles de presse ; les autres pages ont un bouton « Analyser la page ».
 - **Branchement au moteur Python** : `CHECKER_URL=http://localhost:8000/check` dans `server/.env`.
 
 ## Mode chat (branche lot-a-extension)

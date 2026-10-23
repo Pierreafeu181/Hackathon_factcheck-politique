@@ -6,6 +6,6 @@
     "dev:server": "npm run dev -w server",
     "build:ext": "npm run build -w extension",
     "watch:ext": "npm run watch -w extension",
-    "test": "npm test -w server && npm run typecheck -w extension"
+    "test": "npm test -w server && npm run typecheck -w server && npm run typecheck -w extension"
   }
 }
