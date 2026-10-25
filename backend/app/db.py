@@ -13,6 +13,7 @@ import os
 import re
 import sqlite3
 import unicodedata
+import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -113,6 +114,22 @@ def save_result(r: ClaimResult, speaker: Speaker) -> None:
                   "official_period=excluded.official_period, confidence=excluded.confidence, data=excluded.data, "
                   "checked_at=CURRENT_TIMESTAMP",
                   (r.id, v.verdict.value, v.method.value, v.official_value, v.official_period, v.confidence, v.model_dump_json()))
+
+
+def save_feedback(claim_id: str, url: str, quote: str, verdict: str, comment: str) -> str:
+    fid = uuid.uuid4().hex
+    with connect() as c:
+        c.execute("INSERT INTO feedback(id, claim_id, url, quote, verdict, comment) VALUES (?,?,?,?,?,?)",
+                  (fid, claim_id, url, quote, verdict, comment))
+    return fid
+
+
+def list_feedback(limit: int = 200) -> list[dict]:
+    with connect() as c:
+        rows = c.execute("SELECT id, claim_id, url, quote, verdict, comment, created_at FROM feedback "
+                         "ORDER BY created_at DESC LIMIT ?", (limit,)).fetchall()
+    return [{k: (str(r[k]) if k == "created_at" else r[k]) for k in ("id", "claim_id", "url", "quote", "verdict", "comment", "created_at")}
+            for r in rows]
 
 
 def recent_web_checks(category: str, since: str, limit: int = 300) -> list[dict]:

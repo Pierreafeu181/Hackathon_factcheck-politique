@@ -8,8 +8,9 @@ import uuid
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 from fastapi.middleware.cors import CORSMiddleware
 
 from . import check_api, db, llm, referentiel
@@ -98,11 +99,13 @@ def _stats(results: list[ClaimResult]) -> dict[str, int]:
 
 
 @app.post("/check", response_model=CheckResponse, response_model_exclude_none=True)
-def check(req: CheckRequest):
-    """Moteur d'analyse du serveur Node : mettre CHECKER_URL=http://localhost:8000/check dans server/.env"""
+def check(req: CheckRequest, x_verifpol_trusted: str | None = Header(default=None)):
+    """Moteur d'analyse du serveur Node : mettre CHECKER_URL=http://localhost:8000/check dans server/.env.
+    `X-VerifPol-Trusted: 0` (posé par le serveur Node pour un visiteur anonyme en accès public) : résultat non stocké dans
+    les profils. Absent (appel direct en local) : stocké, comme avant."""
     if not any(s.text.strip() for s in req.segments):
         raise HTTPException(400, "Aucun texte à analyser.")
-    return check_api.check(req)
+    return check_api.check(req, store=x_verifpol_trusted != "0")
 
 
 @app.get("/videos/{video_id}/claims", response_model=AnalyzeResponse)
@@ -154,3 +157,26 @@ def chat_route(req: ChatRequest, origin: str | None = Header(default=None)):
         return chat.answer(req)
     except llm.LLMRefusal as e:
         raise HTTPException(422, f"Question refusée : {e}")
+
+
+class FeedbackIn(BaseModel):
+    """« Signaler une erreur » depuis le panneau (relayé et borné par le serveur Node)."""
+    claim_id: str = Field(default="", max_length=200)
+    url: str = Field(default="", max_length=2000)
+    quote: str = Field(default="", max_length=1000)
+    verdict: str = Field(default="", max_length=20)
+    comment: str = Field(min_length=3, max_length=1000)
+
+
+@app.post("/feedback")
+def feedback_in(req: FeedbackIn, origin: str | None = Header(default=None)):
+    if origin:  # comme /chat : seul le serveur Node appelle cette route
+        raise HTTPException(403, "Route réservée au serveur Node.")
+    return {"ok": True, "id": db.save_feedback(req.claim_id, req.url, req.quote, req.verdict, req.comment)}
+
+
+@app.get("/feedback")
+def feedback_list(origin: str | None = Header(default=None)):
+    if origin:
+        raise HTTPException(403, "Route réservée au serveur Node.")
+    return db.list_feedback()

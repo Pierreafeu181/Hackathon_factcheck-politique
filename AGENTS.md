@@ -139,7 +139,9 @@ python scripts/fetch_insee.py
 - [x] Longues vidéos : le serveur Node attend le moteur jusqu'à 15 min (fetch coupait à 5 min → 502) ; le moteur répond au plus tard après 4 min de vérifications (`CHECK_DEADLINE_S`), le reste revient « en cours » et sert à la relance (mémoire 24 h) — Lots A/C
 - [x] Repris de Full Fact / Squash / Chequeabot / Loki : rapprochement systématique avec les fact-checks publiés (donnés au modèle, jamais décisifs seuls) et budget de 6 recherches par analyse, affirmations chiffrées d'abord — Lot C
 - [x] Suite de l'état de l'art (`docs/ETAT_DE_L_ART.md`) : affirmations répétées retrouvées en base (Full Fact), classement par type et prédictions écartées (Full Fact), découpage en affirmations élémentaires (Loki), pistes par type (vote → scrutins) ; fact-checks tiers filtrés (rédactions reconnues, HTTPS, balisés dans le prompt) — Lots B/C
-- [ ] Extension 1.0.1 (date de publication) à envoyer sur le Chrome Web Store : `store/verifpol-1.0.1.zip`
+- [x] Profils protégés : en accès public, seules les analyses de confiance (clé d'administration, serveur local) alimentent les profils et la mémoire des affirmations (`X-VerifPol-Trusted` posé par le serveur Node) — Lots A/D
+- [x] « Signaler une erreur » sur chaque verdict (humain dans la boucle) : table `feedback`, `POST /api/feedback` (quota 20/IP/jour), liste `GET /api/feedback` réservée à l'administration — Lots A/D
+- [ ] Extension 1.0.2 (date de publication + « Signaler une erreur ») à envoyer sur le Chrome Web Store après acceptation de la 1.0.0 : `store/verifpol-1.0.2.zip` ; mettre à jour les pratiques de confidentialité (signalements)
 - [ ] Banque de France (clé du portail développeur) et OCDE (API refusée, 403)
 - [x] Pipeline complet testé sur Gemini 3.5 Flash-Lite (gratuit) : benchmark 10/10 (Claude seul 3/10, Gemini seul 6/10), vidéo réelle en 14 s, chat avec les votes de l'Assemblée. `gemini-3.8-flash` n'a que 20 requêtes/jour en gratuit : il sert de secours
 - [x] Aiven PostgreSQL branché (`DATABASE_URL`) : tables créées, analyses écrites et relues depuis Aiven

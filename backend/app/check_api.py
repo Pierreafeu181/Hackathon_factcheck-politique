@@ -120,7 +120,9 @@ def web_budget(claims: list[ExtractedClaim], date: str | None) -> set[int]:
     return set(sorted(needs, key=rank)[:MAX_WEB])
 
 
-def check(req: CheckRequest) -> CheckResponse:
+def check(req: CheckRequest, store: bool = True) -> CheckResponse:
+    """`store=False` (visiteur anonyme en accès public) : verdicts rendus mais pas stockés dans les profils publics,
+    pour qu'aucun texte attribué à une personnalité par un inconnu n'entre dans son profil ni dans la mémoire."""
     with_start = any(s.start is not None for s in req.segments)
     segments = [TranscriptSegment(start=s.start or 0.0, text=s.text) for s in req.segments if s.text.strip()]
     speaker = req.politician.name if req.politician else "l'orateur principal (nom non fourni)"
@@ -158,7 +160,7 @@ def check(req: CheckRequest) -> CheckResponse:
     speech_id = f"yt:{video_id}" if video_id else "url:" + hashlib.sha1(req.source.url.encode()).hexdigest()[:12]
     ids = [f"{speech_id}#{i}" for i in range(len(claims))]
 
-    if req.politician:  # stockage pour les profils seulement si on sait qui parle
+    if req.politician and store:  # profils : seulement si on sait qui parle et que l'analyse est de confiance
         speech = Speech(id=speech_id, video_id=video_id, url=req.source.url, title=req.source.title,
                         date=req.date, speaker=req.politician)
         db.save_speech(speech, db.dump_transcript(segments))

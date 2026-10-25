@@ -8,7 +8,7 @@
 </head>
 <body>
 <h1>Vérif'Pol — Politique de confidentialité</h1>
-<p>Dernière mise à jour : 23 octobre 2026.</p>
+<p>Dernière mise à jour : 25 octobre 2026.</p>
 <p>Vérif'Pol est une extension de navigateur qui vérifie les affirmations des responsables politiques français à partir de données publiques officielles. Elle n'affiche pas de publicité, ne vend aucune donnée et ne crée pas de compte utilisateur.</p>
 
 <h2>Ce que l'extension envoie, et quand</h2>
@@ -18,6 +18,7 @@
 <li><strong>Quand vous posez une question dans le chat</strong> : votre question et le contexte de la page (titre, verdicts affichés).</li>
 <li><strong>Quand vous lancez « Direct »</strong> : le son de l'onglet, pendant toute la durée du direct, jusqu'à ce que vous l'arrêtiez.</li>
 <li><strong>Quand une vidéo n'a pas de sous-titres</strong> : l'adresse de la vidéo, pour que le serveur en transcrive l'audio.</li>
+<li><strong>Quand vous cliquez sur « Signaler une erreur »</strong> : votre commentaire, la phrase et le verdict concernés, et l'adresse de la page.</li>
 </ul>
 <p>Rien n'est envoyé tant que le panneau Vérif'Pol n'est pas ouvert. L'extension ne lit pas vos autres onglets, vos mots de passe, vos formulaires ni votre historique de navigation.</p>
 
@@ -32,7 +33,8 @@
 <h2>Ce qui est conservé</h2>
 <ul>
 <li><strong>Dans votre navigateur</strong> : l'historique des pages analysées et vos réglages. Vous pouvez les effacer en désinstallant l'extension.</li>
-<li><strong>Sur notre serveur</strong> : les analyses (affirmations, verdicts, sources) et la transcription des prises de parole dont l'orateur est connu, pour construire le profil de fiabilité public de chaque personnalité. Ces données portent sur des propos publics de responsables politiques, pas sur vous.</li>
+<li><strong>Sur notre serveur</strong> : les analyses (affirmations, verdicts, sources) et la transcription des prises de parole dont l'orateur est connu, pour construire le profil de fiabilité public de chaque personnalité (seulement pour les analyses de l'équipe ; les analyses anonymes ne modifient pas les profils). Ces données portent sur des propos publics de responsables politiques, pas sur vous.</li>
+<li><strong>Vos signalements d'erreur</strong> : le commentaire, la phrase, le verdict et l'adresse de la page, relus par l'équipe pour corriger l'outil. N'y écrivez pas de données personnelles.</li>
 <li><strong>Pour limiter les abus</strong> : un compteur d'utilisation par adresse IP, gardé en mémoire et remis à zéro chaque jour. Aucune adresse IP n'est enregistrée en base.</li>
 </ul>
 
@@ -41,6 +43,6 @@
 
 <hr>
 <h2>English summary</h2>
-<p>Vérif'Pol only sends data while its side panel is open: the URL, title and text (captions or article text) of the page being checked, your selected sentence, your chat questions, or the tab's audio while you run "Direct". Data is processed by our server on Aiven (EU), Google Gemini (free tier: Google may use it to improve its services) and Deepgram (speech-to-text). We keep fact-check results about public statements by politicians, a per-IP daily counter in memory to prevent abuse, and nothing that identifies you. No ads, no data sale, no account.</p>
+<p>Vérif'Pol only sends data while its side panel is open: the URL, title and text (captions or article text) of the page being checked, your selected sentence, your chat questions, the error reports you choose to send (comment, sentence, verdict, page URL, kept for review), or the tab's audio while you run "Direct". Data is processed by our server on Aiven (EU), Google Gemini (free tier: Google may use it to improve its services) and Deepgram (speech-to-text). We keep fact-check results about public statements by politicians, a per-IP daily counter in memory to prevent abuse, and nothing that identifies you. No ads, no data sale, no account.</p>
 </body>
 </html>

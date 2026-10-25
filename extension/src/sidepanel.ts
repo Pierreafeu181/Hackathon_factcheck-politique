@@ -684,6 +684,31 @@ function splitExplanation(text: string): { nuance?: string; body: string; correc
   return { nuance: m?.[1], body, correction };
 }
 
+/** « Signaler une erreur » (humain dans la boucle, comme Full Fact, Squash ou CaptainFact) : relu par l'équipe. */
+function feedbackForm(claim: Claim, page: Page | undefined, onClose: () => void): HTMLElement {
+  const text = el("textarea", { className: "feedback-text", maxLength: 1000, rows: 3,
+    placeholder: "Qu'est-ce qui est inexact ? Ajoutez une source si possible." }) as HTMLTextAreaElement;
+  const send = el("button", { className: "feedback-send" }, "Envoyer");
+  const cancel = el("button", { className: "link" }, "Annuler");
+  const status = el("p", { className: "feedback-status" });
+  const form = el("div", { className: "feedback" }, text, el("div", { className: "feedback-actions" }, send, cancel), status);
+  cancel.addEventListener("click", () => { form.remove(); onClose(); });
+  send.addEventListener("click", async () => {
+    if (text.value.trim().length < 3) { status.textContent = "Décrivez l'erreur en quelques mots."; return; }
+    send.setAttribute("disabled", "");
+    try {
+      await api("/api/feedback", { method: "POST", body: JSON.stringify({
+        claim_id: claim.id, url: page?.url ?? "", quote: claim.quote, verdict: claim.verdict, comment: text.value.trim() }) });
+      form.replaceChildren(el("p", { className: "feedback-status" }, "Merci : signalement transmis à l'équipe, qui le relira."));
+    } catch (err) {
+      status.textContent = explain(err);
+      send.removeAttribute("disabled");
+    }
+  });
+  queueMicrotask(() => text.focus());
+  return form;
+}
+
 /** Une affirmation : une ligne (verdict + citation + moment) qui se déplie sur le détail. */
 function claimItem(claim: Claim, page: Page | undefined): HTMLElement {
   const { nuance, body, correction } = splitExplanation(claim.explanation);
@@ -698,7 +723,9 @@ function claimItem(claim: Claim, page: Page | undefined): HTMLElement {
   }
   const why = el("button", { className: "link" }, "Pourquoi ce verdict ?");
   why.addEventListener("click", () => void ask(`Pourquoi « ${claim.verdict} » pour : « ${claim.quote} » ?`));
-  actions.append(why);
+  const report = el("button", { className: "link" }, "Signaler une erreur");
+  report.addEventListener("click", () => { report.hidden = true; actions.after(feedbackForm(claim, page, () => { report.hidden = false; })); });
+  actions.append(why, report);
   const sources = claim.sources.filter((s) => isWebUrl(s.url));
   const detail = el("div", { className: "claim-detail" },
     ...(nuance ? [el("p", { className: "nuance" }, nuance)] : []),

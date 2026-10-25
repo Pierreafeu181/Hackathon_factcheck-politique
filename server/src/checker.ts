@@ -6,11 +6,13 @@ import type { ChatRequest, ChatResponse, CheckRequest, CheckResponse, Claim, Evi
 const ENGINE_TIMEOUT_MS = Number(process.env.ENGINE_TIMEOUT_MS) || 15 * 60_000;
 
 /** POST JSON sans le délai de 5 min de fetch (undici) : seul ENGINE_TIMEOUT_MS s'applique. */
-export function postJson(url: string, body: unknown, timeoutMs = ENGINE_TIMEOUT_MS): Promise<{ status: number; text: string }> {
+export function postJson(url: string, body: unknown, timeoutMs = ENGINE_TIMEOUT_MS,
+  extraHeaders: Record<string, string> = {}): Promise<{ status: number; text: string }> {
   return new Promise((resolve, reject) => {
     const data = Buffer.from(JSON.stringify(body));
     const send = url.startsWith("https:") ? httpsRequest : httpRequest;
-    const req = send(url, { method: "POST", headers: { "Content-Type": "application/json", "Content-Length": data.length } }, (res) => {
+    const headers = { "Content-Type": "application/json", "Content-Length": String(data.length), ...extraHeaders };
+    const req = send(url, { method: "POST", headers }, (res) => {
       const chunks: Buffer[] = [];
       res.on("data", (c: Buffer) => chunks.push(c));
       res.on("end", () => resolve({ status: res.statusCode ?? 0, text: Buffer.concat(chunks).toString("utf8") }));
@@ -26,10 +28,14 @@ export function postJson(url: string, body: unknown, timeoutMs = ENGINE_TIMEOUT_
  * Point d'entrée de l'analyse. Si CHECKER_URL est défini, on transmet la requête au moteur
  * de l'équipe ; sinon on répond avec le faux moteur de démo pour que l'extension reste utilisable.
  */
-export async function check(req: CheckRequest): Promise<CheckResponse> {
+/**
+ * `trusted` : analyse faite avec la clé d'administration (ou serveur local) ; seule celle-ci alimente les profils publics
+ * et la mémoire des affirmations côté moteur. L'en-tête est posé ici, jamais recopié depuis la requête du client.
+ */
+export async function check(req: CheckRequest, trusted = false): Promise<CheckResponse> {
   const url = process.env.CHECKER_URL;
   if (!url) return demoCheck(req);
-  const res = await postJson(url, req);
+  const res = await postJson(url, req, ENGINE_TIMEOUT_MS, { "X-VerifPol-Trusted": trusted ? "1" : "0" });
   if (res.status !== 200) throw new Error(engineError("Moteur d'analyse", res));
   return JSON.parse(res.text) as CheckResponse;
 }

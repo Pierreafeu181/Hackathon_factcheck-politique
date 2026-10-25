@@ -4,7 +4,7 @@ import { serve } from "@hono/node-server";
 import { type Context, Hono } from "hono";
 import type { ChatRequest, CheckRequest, Segment } from "../../shared/contract.ts";
 import { CheckCache } from "./cache.ts";
-import { chat, check } from "./checker.ts";
+import { chat, check, engineError, postJson } from "./checker.ts";
 import { mergeSegments, transcribeAudio } from "./deepgram.ts";
 import type { Feed } from "./rss.ts";
 import { attachLive } from "./live.ts";
@@ -55,7 +55,7 @@ const limiter = (name: string, perIp: number, total: number) => {
   return new DailyLimiter(a || perIp, b || total);
 };
 const limits = { check: limiter("CHECKS", 40, 400), chat: limiter("CHATS", 100, 1000),
-  transcribe: limiter("TRANSCRIBE", 10, 100), live: limiter("LIVE", 5, 30) };
+  transcribe: limiter("TRANSCRIBE", 10, 100), live: limiter("LIVE", 5, 30), feedback: limiter("FEEDBACK", 20, 500) };
 /** true si la requête peut passer : admin (clé valide), accès local, ou quota public disponible. */
 const withinQuota = (kind: keyof typeof limits, token: string | null | undefined, ip: string) =>
   !publicAccess || tokenOk(token) || limits[kind].take(ip);
@@ -95,7 +95,7 @@ app.post("/api/check", async (c) => {
         overQuota = true;
         return { claims: [], demo: true }; // non mis en cache (demo)
       }
-      return check(req);
+      return check(req, !publicAccess || tokenOk(token));
     }, c.req.query("force") === "1" && (!publicAccess || tokenOk(token)), // ?force=1 réservé à l'admin en public
     !publicAccess || tokenOk(token)); // seules les analyses de confiance servent pour toute la vidéo
     return overQuota ? c.json(quotaError, 429) : c.json(res);
@@ -171,6 +171,32 @@ app.get("/api/politicians", (c) => relay(c, "/politicians"));
 app.get("/api/politicians/:id/claims", async (c) => {
   if (!SLUG.test(c.req.param("id"))) return c.json({ error: "Identifiant invalide." }, 400);
   return relay(c, `/politicians/${c.req.param("id")}/claims`);
+});
+
+/** « Signaler une erreur » : stocké par le moteur (table feedback) et relu par l'équipe. Champs bornés, quota par IP. */
+const VERDICTS = new Set(["vrai", "trompeur", "faux", "invérifiable"]);
+const str = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
+app.post("/api/feedback", async (c) => {
+  const body = await c.req.json<Record<string, unknown>>().catch(() => null);
+  const comment = str(body?.comment, 1000);
+  if (comment.length < 3) return c.json({ error: "Décrivez l'erreur en quelques mots." }, 400);
+  const url = str(body?.url, 2000);
+  const verdict = str(body?.verdict, 20);
+  if (!withinQuota("feedback", c.req.header("x-verifpol-token"), ipOf(c))) return c.json(quotaError, 429);
+  const target = engine("/feedback");
+  if (!target) return c.json({ ok: true, demo: true });
+  try {
+    const res = await postJson(target, { claim_id: str(body?.claim_id, 200), url: /^https?:\/\//.test(url) ? url : "",
+      quote: str(body?.quote, 1000), verdict: VERDICTS.has(verdict) ? verdict : "", comment }, 30_000);
+    return res.status === 200 ? c.json({ ok: true }) : c.json({ error: engineError("Signalement", res) }, 502);
+  } catch (err) {
+    return c.json({ error: (err as Error).message }, 502);
+  }
+});
+/** Liste des signalements : clé d'administration seulement (ou serveur local). */
+app.get("/api/feedback", async (c) => {
+  if (publicAccess && !tokenOk(c.req.header("x-verifpol-token"))) return c.json({ error: "Réservé à l'administration." }, 403);
+  return relay(c, "/feedback");
 });
 
 app.get("/api/watch", (c) => c.json(watcher.snapshot()));

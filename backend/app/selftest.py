@@ -220,10 +220,19 @@ def main() -> None:
     assert llm._text([{"type": "thinking", "thinking": "…"}, {"type": "text", "text": "ok"}]) == "ok"
     print("llm : fournisseur", llm.PROVIDER, "/", llm.MODEL)
 
-    # quota du jour épuisé : 503 avec un message lisible (relayé jusqu'au panneau)
+    # signalements « Signaler une erreur » : stockés, listés, routes réservées au serveur Node
     from fastapi.testclient import TestClient
     from . import main as main_mod
-    real_check, main_mod.check_api.check = main_mod.check_api.check, lambda req: (_ for _ in ()).throw(llm.QuotaExhausted("test"))
+    client = TestClient(main_mod.app)
+    r = client.post("/feedback", json={"claim_id": "yt:x#1", "url": "https://www.youtube.com/watch?v=x", "quote": "q",
+                                       "verdict": "faux", "comment": "Le chiffre cité date de 2024."})
+    assert r.status_code == 200 and r.json()["ok"], r.text
+    assert client.post("/feedback", json={"comment": "x" * 5}, headers={"Origin": "https://evil.example"}).status_code == 403
+    assert client.post("/feedback", json={"comment": "x" * 2000}).status_code == 422
+    assert any(f["comment"] == "Le chiffre cité date de 2024." for f in client.get("/feedback").json())
+
+    # quota du jour épuisé : 503 avec un message lisible (relayé jusqu'au panneau)
+    real_check, main_mod.check_api.check = main_mod.check_api.check, lambda req, **k: (_ for _ in ()).throw(llm.QuotaExhausted("test"))
     try:
         r = TestClient(main_mod.app).post("/check", json={"source": {"kind": "selection", "url": "https://x.fr/q"}, "segments": [{"text": "x"}]})
         assert r.status_code == 503 and "quota du jour" in r.json()["detail"], r.text
@@ -284,6 +293,13 @@ def main() -> None:
     assert "Correction : corrigé" in resp.claims[1].explanation
     assert db.get_speech("yt:dQw4w9WgXcQ") is not None  # stocké car politician fourni
     print("/check :", [(c.verdict, c.start) for c in resp.claims])
+
+    # visiteur anonyme en accès public : verdicts rendus, rien dans les profils
+    check_api.extract_claims = lambda *a, **k: fake_claims
+    resp = check_api.check(CheckRequest.model_validate({
+        "source": {"kind": "youtube", "url": "https://www.youtube.com/watch?v=anonyme0001", "title": "t"},
+        "segments": [{"text": "…", "start": 10}], "politician": {"name": "Personne Anonyme"}}), store=False)
+    assert len(resp.claims) == 2 and db.profile("personne-anonyme") is None
 
     # article : faits de l'article et des autres personnes citées vérifiés, mais hors du profil de la personnalité
     assert check_api.same_person("le ministre Jean-Pierre Farandou", "Jean-Pierre Farandou")

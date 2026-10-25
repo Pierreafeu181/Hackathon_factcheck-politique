@@ -48,6 +48,17 @@ CREATE TABLE IF NOT EXISTS verifications (
     checked_at      TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Signalements d'erreur envoyés depuis le panneau (« Signaler une erreur ») : relus par l'équipe (humain dans la boucle).
+CREATE TABLE IF NOT EXISTS feedback (
+    id          TEXT PRIMARY KEY,
+    claim_id    TEXT,
+    url         TEXT,
+    quote       TEXT,
+    verdict     TEXT,
+    comment     TEXT NOT NULL,
+    created_at  TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE INDEX IF NOT EXISTS idx_claims_politician ON claims(politician_id);
 CREATE INDEX IF NOT EXISTS idx_claims_indicator  ON claims(indicator);
 CREATE INDEX IF NOT EXISTS idx_speeches_video    ON speeches(video_id);

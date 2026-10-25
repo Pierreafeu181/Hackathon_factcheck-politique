@@ -153,3 +153,10 @@ footer { padding: 0 14px 8px; font-size: 11px; color: var(--muted); }
 footer summary { cursor: pointer; width: fit-content; }
 footer label { display: flex; gap: 8px; align-items: center; margin-top: 4px; }
 footer input { flex: 1; font: inherit; border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px; background: var(--card); color: var(--text); }
+
+.feedback { display: grid; gap: 6px; margin-top: 8px; }
+.feedback-text { width: 100%; box-sizing: border-box; font: inherit; font-size: 13px; padding: 6px 8px; border: 1px solid var(--border); background: var(--card); color: var(--text); border-radius: 8px; resize: vertical; }
+.feedback-actions { display: flex; gap: 12px; align-items: center; }
+.feedback-send { font: inherit; font-size: 12px; padding: 4px 12px; border-radius: 999px; border: 0; background: var(--link); color: #fff; cursor: pointer; }
+.feedback-send[disabled] { opacity: .5; cursor: default; }
+.feedback-status { margin: 0; font-size: 12px; color: var(--muted); }
