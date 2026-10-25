@@ -49,6 +49,18 @@ Ajoutés le 2026-10-25. Même script ; le déficit et les dépenses publiques an
 
 Volontairement **absents** : les prélèvements obligatoires (Eurostat publie 45,3 % en 2024 avec une définition plus large que le « taux de PO » français, environ 43 % ; le comparateur aurait jugé faux un chiffre juste) et le taux de pauvreté (série BDM arrêtée en 2015 ; la recherche dans les publications INSEE le trouve : 15,4 % en 2024).
 
+## Référentiels immigration et sécurité (`immigration.json`, `securite.json`)
+
+Ajoutés le 2026-10-25, vérifiés contre les publications officielles avant d'être figés.
+
+| Clé | Source | Contrôle |
+|---|---|---|
+| `demandes_asile_total` / `demandes_asile_premieres` | Eurostat migr_asyappctza (TOTAL / FRST), France, annuel | 2025 : 151 665 et 116 475, identiques à la DGEF (151 665 et 116 476) |
+| `premiers_titres_sejour` | Eurostat migr_resfirst, tous motifs | 2025 : 377 462 ; la DGEF publie en janvier un provisoire de 384 230 (écart 1,8 %) |
+| `homicides`, `tentatives_homicide`, `cambriolages_logement`, `violences_intrafamiliales`, `violences_hors_famille`, `violences_sexuelles`, `vols_violents_sans_arme`, `vols_avec_armes`, `trafic_stupefiants`, `escroqueries` | SSMSI, base régionale de la délinquance enregistrée (data.gouv, ressource `75753852-…`), somme des régions par année, 2016 → 2025 | 2025 : 975 homicides, 4 477 tentatives, 211 596 cambriolages, identiques au bilan SSMSI 2025 |
+
+Unité `nombre` (nombre brut). Les faits de délinquance sont des faits **enregistrés** : l'explication le rappelle.
+
 ## Sites officiels (outils `insee_publications` et `page_officielle_lire`)
 
 Sans clé. `insee_publications` interroge la recherche du site insee.fr (Insee Première, Focus, chiffres clés). `page_officielle_lire` lit le texte d'une page HTML, **seulement** sur une liste fermée de domaines (`OFFICIAL_HOSTS` dans `open_data.py` : insee.fr, *.gouv.fr, vie-publique.fr, ccomptes.fr, Assemblée, Sénat, Banque de France, europa.eu, oecd.org…), en HTTPS, redirections comprises. Les PDF ne sont pas lus. vie-publique.fr bloque les robots sur sa recherche, mais ses pages restent lisibles.
@@ -66,8 +78,7 @@ Sans clé. `insee_publications` interroge la recherche du site insee.fr (Insee P
 |---|---|
 | Économie | Pouvoir d'achat du RDB (INSEE) |
 | Finances publiques | Taux de prélèvements obligatoires au sens français (INSEE) |
-| Immigration | Titres de séjour, demandes d'asile, éloignements (ministère de l'Intérieur, DGEF, data.gouv) |
-| Sécurité | Crimes et délits enregistrés (SSMSI, data.gouv) |
+| Immigration | Éloignements (DGEF) |
 | Santé | Dépenses de santé (DREES), déserts médicaux (DREES, data.gouv) |
 | Énergie | Prix de l'électricité, mix énergétique (RTE eco2mix, SDES) |
 | Comparaisons UE | Eurostat (API SDMX, même logique que l'INSEE) |

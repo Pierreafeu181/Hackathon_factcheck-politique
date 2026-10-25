@@ -188,6 +188,8 @@ def _value(v: float, s: Series) -> str:
         return f"{_num(v, 1)} milliards d'euros"
     if s.unit == "euros":
         return f"{_num(v)} €"
+    if s.unit == "nombre":
+        return _num(v, 0)
     return _num(v)
 
 
@@ -214,6 +216,10 @@ def _publisher(s: Series) -> str:
         return "l'INSEE"
     if s.publisher.startswith("DARES"):
         return "la DARES"
+    if s.publisher.startswith("SSMSI"):
+        return "le SSMSI (ministère de l'Intérieur)"
+    if s.publisher.startswith("Ministère de l'Intérieur"):
+        return "le ministère de l'Intérieur"
     return s.publisher
 
 
@@ -279,15 +285,15 @@ def check(claim: ExtractedClaim, speech_date: str | None = None) -> CheckResult 
         if s is None:
             return None  # discours antérieur à la série
     try:
-        if claim.claim_type == ClaimType.niveau:
-            return _check_level(claim, s)
-        if claim.claim_type == ClaimType.evolution:
-            return _check_evolution(claim, s)
-        if claim.claim_type == ClaimType.record:
-            return _check_record(claim, s)
+        checker = {ClaimType.niveau: _check_level, ClaimType.evolution: _check_evolution,
+                   ClaimType.record: _check_record}.get(claim.claim_type)
+        result = checker(claim, s) if checker else None
     except ValueError:  # période illisible renvoyée par le modèle (« 2026-S1 ») : on passe à la recherche
         return None
-    return None
+    if result and s.publisher.startswith("SSMSI"):
+        result.explanation += (" Il s'agit de faits enregistrés par la police et la gendarmerie : leur évolution dépend "
+                               "aussi du nombre de plaintes déposées.")
+    return result
 
 
 def _check_level(c: ExtractedClaim, s: Series) -> CheckResult | None:
@@ -324,9 +330,15 @@ def _check_level(c: ExtractedClaim, s: Series) -> CheckResult | None:
 
 
 def _check_evolution(c: ExtractedClaim, s: Series) -> CheckResult | None:
-    if not c.period_start:
+    if c.period_start:
+        a, b = value_at(s, c.period_start), value_at(s, c.period_end)
+    elif not c.period_end:
+        # « les cambriolages sont en baisse » : dernier point comparé au même point un an plus tôt
+        pb, vb = s.obs[-1]
+        a = next(((v, p) for p, v in s.obs if abs(_t(p) - (_t(pb) - 1)) < 1e-6), None)
+        b = (vb, pb)
+    else:
         return None
-    a, b = value_at(s, c.period_start), value_at(s, c.period_end)
     if a is None or b is None:
         return None
     (va, pa), (vb, pb) = a, b
@@ -395,7 +407,10 @@ def _check_record(c: ExtractedClaim, s: Series) -> CheckResult | None:
     elif c.period_start and _Y.match(c.period_start[:4]):
         claimed_years = _t(s.obs[-1][0]) - _t(c.period_start[:4])
     else:
-        return None
+        claimed_years = 0.0
+    absolute = claimed_years < 1  # « c'est un record », sans durée : record sur toute la série
+    if absolute:
+        claimed_years = _t(s.obs[-1][0]) - _t(s.obs[0][0])
 
     level = "bas" if lowest else "haut"
 
@@ -405,8 +420,9 @@ def _check_record(c: ExtractedClaim, s: Series) -> CheckResult | None:
         years = "moins d'un an" if actual < 1 else f"environ {round(actual)} an{'s' if round(actual) >= 2 else ''}"
         where = (f"il faut remonter {_period(p_prev)} pour trouver un niveau aussi {level}, soit {years}" if p_prev
                  else f"c'est le niveau le plus {level} depuis le début de la série ({_period(s.obs[0][0])[3:]})")
+        said = "d'un record" if absolute else f"d'environ {round(claimed_years)} ans"
         text = (f"Selon {_publisher(s)}, {_inline(s)} : {_value(v_ref, s)} {_period(p_ref)} ; "
-                f"{where}. L'affirmation parle d'environ {round(claimed_years)} ans.")
+                f"{where}. L'affirmation parle {said}.")
         if claimed_years <= actual + 1:
             return Verdict.vrai, text
         if claimed_years <= actual * 1.5:

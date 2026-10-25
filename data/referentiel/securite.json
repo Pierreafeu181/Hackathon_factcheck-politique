@@ -1,0 +1,526 @@
+{
+ "generated_at": "2026-10-25",
+ "source": "INSEE BDM (bdm.insee.fr), Eurostat, data.gouv.fr (SSMSI)",
+ "series": {
+  "homicides": {
+   "label": "Homicides (victimes)",
+   "datagouv_resource": "75753852-aca0-4c53-bfd4-a29513358d2f",
+   "insee_title": "Homicides",
+   "unit": "nombre",
+   "publisher": "SSMSI (ministère de l'Intérieur)",
+   "url": "https://www.data.gouv.fr/datasets/bases-statistiques-communale-departementale-et-regionale-de-la-delinquance-enregistree-par-la-police-et-la-gendarmerie-nationales",
+   "note": "SSMSI, délinquance enregistrée par la police et la gendarmerie, France entière, annuel (somme des régions). Ce sont des faits enregistrés (plaintes, constatations), pas le nombre réel de faits",
+   "last_update": "2026-10-25",
+   "observations": [
+    [
+     "2016",
+     911.0
+    ],
+    [
+     "2017",
+     835.0
+    ],
+    [
+     "2018",
+     845.0
+    ],
+    [
+     "2019",
+     878.0
+    ],
+    [
+     "2020",
+     788.0
+    ],
+    [
+     "2021",
+     840.0
+    ],
+    [
+     "2022",
+     958.0
+    ],
+    [
+     "2023",
+     996.0
+    ],
+    [
+     "2024",
+     976.0
+    ],
+    [
+     "2025",
+     975.0
+    ]
+   ]
+  },
+  "tentatives_homicide": {
+   "label": "Tentatives d'homicide (victimes)",
+   "datagouv_resource": "75753852-aca0-4c53-bfd4-a29513358d2f",
+   "insee_title": "Tentatives d'homicide",
+   "unit": "nombre",
+   "publisher": "SSMSI (ministère de l'Intérieur)",
+   "url": "https://www.data.gouv.fr/datasets/bases-statistiques-communale-departementale-et-regionale-de-la-delinquance-enregistree-par-la-police-et-la-gendarmerie-nationales",
+   "note": "SSMSI, délinquance enregistrée par la police et la gendarmerie, France entière, annuel (somme des régions). Ce sont des faits enregistrés (plaintes, constatations), pas le nombre réel de faits",
+   "last_update": "2026-10-25",
+   "observations": [
+    [
+     "2016",
+     2259.0
+    ],
+    [
+     "2017",
+     2284.0
+    ],
+    [
+     "2018",
+     2482.0
+    ],
+    [
+     "2019",
+     2718.0
+    ],
+    [
+     "2020",
+     3115.0
+    ],
+    [
+     "2021",
+     3136.0
+    ],
+    [
+     "2022",
+     3584.0
+    ],
+    [
+     "2023",
+     4015.0
+    ],
+    [
+     "2024",
+     4290.0
+    ],
+    [
+     "2025",
+     4477.0
+    ]
+   ]
+  },
+  "cambriolages_logement": {
+   "label": "Cambriolages de logement (infractions)",
+   "datagouv_resource": "75753852-aca0-4c53-bfd4-a29513358d2f",
+   "insee_title": "Cambriolages de logement",
+   "unit": "nombre",
+   "publisher": "SSMSI (ministère de l'Intérieur)",
+   "url": "https://www.data.gouv.fr/datasets/bases-statistiques-communale-departementale-et-regionale-de-la-delinquance-enregistree-par-la-police-et-la-gendarmerie-nationales",
+   "note": "SSMSI, délinquance enregistrée par la police et la gendarmerie, France entière, annuel (somme des régions). Ce sont des faits enregistrés (plaintes, constatations), pas le nombre réel de faits",
+   "last_update": "2026-10-25",
+   "observations": [
+    [
+     "2016",
+     248887.0
+    ],
+    [
+     "2017",
+     252956.0
+    ],
+    [
+     "2018",
+     236817.0
+    ],
+    [
+     "2019",
+     236661.0
+    ],
+    [
+     "2020",
+     189289.0
+    ],
+    [
+     "2021",
+     189892.0
+    ],
+    [
+     "2022",
+     211458.0
+    ],
+    [
+     "2023",
+     217078.0
+    ],
+    [
+     "2024",
+     218156.0
+    ],
+    [
+     "2025",
+     211596.0
+    ]
+   ]
+  },
+  "violences_intrafamiliales": {
+   "label": "Violences physiques intrafamiliales (victimes)",
+   "datagouv_resource": "75753852-aca0-4c53-bfd4-a29513358d2f",
+   "insee_title": "Violences physiques intrafamiliales",
+   "unit": "nombre",
+   "publisher": "SSMSI (ministère de l'Intérieur)",
+   "url": "https://www.data.gouv.fr/datasets/bases-statistiques-communale-departementale-et-regionale-de-la-delinquance-enregistree-par-la-police-et-la-gendarmerie-nationales",
+   "note": "SSMSI, délinquance enregistrée par la police et la gendarmerie, France entière, annuel (somme des régions). Ce sont des faits enregistrés (plaintes, constatations), pas le nombre réel de faits",
+   "last_update": "2026-10-25",
+   "observations": [
+    [
+     "2016",
+     113821.0
+    ],
+    [
+     "2017",
+     117685.0
+    ],
+    [
+     "2018",
+     129216.0
+    ],
+    [
+     "2019",
+     148546.0
+    ],
+    [
+     "2020",
+     163702.0
+    ],
+    [
+     "2021",
+     187743.0
+    ],
+    [
+     "2022",
+     216822.0
+    ],
+    [
+     "2023",
+     238211.0
+    ],
+    [
+     "2024",
+     244360.0
+    ],
+    [
+     "2025",
+     256681.0
+    ]
+   ]
+  },
+  "violences_hors_famille": {
+   "label": "Violences physiques hors cadre familial (victimes)",
+   "datagouv_resource": "75753852-aca0-4c53-bfd4-a29513358d2f",
+   "insee_title": "Violences physiques hors cadre familial",
+   "unit": "nombre",
+   "publisher": "SSMSI (ministère de l'Intérieur)",
+   "url": "https://www.data.gouv.fr/datasets/bases-statistiques-communale-departementale-et-regionale-de-la-delinquance-enregistree-par-la-police-et-la-gendarmerie-nationales",
+   "note": "SSMSI, délinquance enregistrée par la police et la gendarmerie, France entière, annuel (somme des régions). Ce sont des faits enregistrés (plaintes, constatations), pas le nombre réel de faits",
+   "last_update": "2026-10-25",
+   "observations": [
+    [
+     "2016",
+     163447.0
+    ],
+    [
+     "2017",
+     171894.0
+    ],
+    [
+     "2018",
+     183019.0
+    ],
+    [
+     "2019",
+     185649.0
+    ],
+    [
+     "2020",
+     168658.0
+    ],
+    [
+     "2021",
+     183418.0
+    ],
+    [
+     "2022",
+     200410.0
+    ],
+    [
+     "2023",
+     205896.0
+    ],
+    [
+     "2024",
+     205459.0
+    ],
+    [
+     "2025",
+     215728.0
+    ]
+   ]
+  },
+  "violences_sexuelles": {
+   "label": "Violences sexuelles (victimes)",
+   "datagouv_resource": "75753852-aca0-4c53-bfd4-a29513358d2f",
+   "insee_title": "Violences sexuelles",
+   "unit": "nombre",
+   "publisher": "SSMSI (ministère de l'Intérieur)",
+   "url": "https://www.data.gouv.fr/datasets/bases-statistiques-communale-departementale-et-regionale-de-la-delinquance-enregistree-par-la-police-et-la-gendarmerie-nationales",
+   "note": "SSMSI, délinquance enregistrée par la police et la gendarmerie, France entière, annuel (somme des régions). Ce sont des faits enregistrés (plaintes, constatations), pas le nombre réel de faits",
+   "last_update": "2026-10-25",
+   "observations": [
+    [
+     "2016",
+     51913.0
+    ],
+    [
+     "2017",
+     57003.0
+    ],
+    [
+     "2018",
+     67472.0
+    ],
+    [
+     "2019",
+     75329.0
+    ],
+    [
+     "2020",
+     77089.0
+    ],
+    [
+     "2021",
+     96385.0
+    ],
+    [
+     "2022",
+     106114.0
+    ],
+    [
+     "2023",
+     114079.0
+    ],
+    [
+     "2024",
+     122444.0
+    ],
+    [
+     "2025",
+     132143.0
+    ]
+   ]
+  },
+  "vols_violents_sans_arme": {
+   "label": "Vols violents sans arme (infractions)",
+   "datagouv_resource": "75753852-aca0-4c53-bfd4-a29513358d2f",
+   "insee_title": "Vols violents sans arme",
+   "unit": "nombre",
+   "publisher": "SSMSI (ministère de l'Intérieur)",
+   "url": "https://www.data.gouv.fr/datasets/bases-statistiques-communale-departementale-et-regionale-de-la-delinquance-enregistree-par-la-police-et-la-gendarmerie-nationales",
+   "note": "SSMSI, délinquance enregistrée par la police et la gendarmerie, France entière, annuel (somme des régions). Ce sont des faits enregistrés (plaintes, constatations), pas le nombre réel de faits",
+   "last_update": "2026-10-25",
+   "observations": [
+    [
+     "2016",
+     94758.0
+    ],
+    [
+     "2017",
+     89542.0
+    ],
+    [
+     "2018",
+     82972.0
+    ],
+    [
+     "2019",
+     80890.0
+    ],
+    [
+     "2020",
+     65624.0
+    ],
+    [
+     "2021",
+     62071.0
+    ],
+    [
+     "2022",
+     59450.0
+    ],
+    [
+     "2023",
+     54270.0
+    ],
+    [
+     "2024",
+     48292.0
+    ],
+    [
+     "2025",
+     49193.0
+    ]
+   ]
+  },
+  "vols_avec_armes": {
+   "label": "Vols avec armes (infractions)",
+   "datagouv_resource": "75753852-aca0-4c53-bfd4-a29513358d2f",
+   "insee_title": "Vols avec armes",
+   "unit": "nombre",
+   "publisher": "SSMSI (ministère de l'Intérieur)",
+   "url": "https://www.data.gouv.fr/datasets/bases-statistiques-communale-departementale-et-regionale-de-la-delinquance-enregistree-par-la-police-et-la-gendarmerie-nationales",
+   "note": "SSMSI, délinquance enregistrée par la police et la gendarmerie, France entière, annuel (somme des régions). Ce sont des faits enregistrés (plaintes, constatations), pas le nombre réel de faits",
+   "last_update": "2026-10-25",
+   "observations": [
+    [
+     "2016",
+     10907.0
+    ],
+    [
+     "2017",
+     10043.0
+    ],
+    [
+     "2018",
+     9000.0
+    ],
+    [
+     "2019",
+     9111.0
+    ],
+    [
+     "2020",
+     8571.0
+    ],
+    [
+     "2021",
+     8454.0
+    ],
+    [
+     "2022",
+     8571.0
+    ],
+    [
+     "2023",
+     8679.0
+    ],
+    [
+     "2024",
+     8582.0
+    ],
+    [
+     "2025",
+     7913.0
+    ]
+   ]
+  },
+  "trafic_stupefiants": {
+   "label": "Trafic de stupéfiants (personnes mises en cause)",
+   "datagouv_resource": "75753852-aca0-4c53-bfd4-a29513358d2f",
+   "insee_title": "Trafic de stupéfiants",
+   "unit": "nombre",
+   "publisher": "SSMSI (ministère de l'Intérieur)",
+   "url": "https://www.data.gouv.fr/datasets/bases-statistiques-communale-departementale-et-regionale-de-la-delinquance-enregistree-par-la-police-et-la-gendarmerie-nationales",
+   "note": "SSMSI, délinquance enregistrée par la police et la gendarmerie, France entière, annuel (somme des régions). Ce sont des faits enregistrés (plaintes, constatations), pas le nombre réel de faits",
+   "last_update": "2026-10-25",
+   "observations": [
+    [
+     "2016",
+     40823.0
+    ],
+    [
+     "2017",
+     44042.0
+    ],
+    [
+     "2018",
+     45580.0
+    ],
+    [
+     "2019",
+     47157.0
+    ],
+    [
+     "2020",
+     41271.0
+    ],
+    [
+     "2021",
+     46835.0
+    ],
+    [
+     "2022",
+     49090.0
+    ],
+    [
+     "2023",
+     48868.0
+    ],
+    [
+     "2024",
+     52437.0
+    ],
+    [
+     "2025",
+     57287.0
+    ]
+   ]
+  },
+  "escroqueries": {
+   "label": "Escroqueries et fraudes aux moyens de paiement (victimes)",
+   "datagouv_resource": "75753852-aca0-4c53-bfd4-a29513358d2f",
+   "insee_title": "Escroqueries et fraudes aux moyens de paiement",
+   "unit": "nombre",
+   "publisher": "SSMSI (ministère de l'Intérieur)",
+   "url": "https://www.data.gouv.fr/datasets/bases-statistiques-communale-departementale-et-regionale-de-la-delinquance-enregistree-par-la-police-et-la-gendarmerie-nationales",
+   "note": "SSMSI, délinquance enregistrée par la police et la gendarmerie, France entière, annuel (somme des régions). Ce sont des faits enregistrés (plaintes, constatations), pas le nombre réel de faits",
+   "last_update": "2026-10-25",
+   "observations": [
+    [
+     "2016",
+     249477.0
+    ],
+    [
+     "2017",
+     255068.0
+    ],
+    [
+     "2018",
+     258443.0
+    ],
+    [
+     "2019",
+     292644.0
+    ],
+    [
+     "2020",
+     306809.0
+    ],
+    [
+     "2021",
+     358142.0
+    ],
+    [
+     "2022",
+     387251.0
+    ],
+    [
+     "2023",
+     408986.0
+    ],
+    [
+     "2024",
+     414653.0
+    ],
+    [
+     "2025",
+     445463.0
+    ]
+   ]
+  }
+ }
+}

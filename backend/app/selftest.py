@@ -87,6 +87,22 @@ def main() -> None:
     assert referentiel.check(claim(value=8.0, unit=Unit.pourcent), "1970-01-01") is None  # avant le début de la série
     assert referentiel.check(claim(value=8.0, unit=Unit.pourcent), "pas une date").official_period == last_p
 
+    # immigration et sécurité (nombres bruts) : chiffres officiels 2025 vérifiés contre la DGEF et le bilan SSMSI
+    assert series["demandes_asile_total"].obs[-1] == ("2025", 151665.0)
+    assert series["homicides"].obs[-1] == ("2025", 975.0) and series["cambriolages_logement"].obs[-1] == ("2025", 211596.0)
+    r = referentiel.check(claim(indicator="homicides", category="securite", value=1000, unit=Unit.personnes, bound="min"), "2026-10-25")
+    assert r.verdict == Verdict.imprecis and "975" in r.explanation and "SSMSI" in r.explanation, r
+    r = referentiel.check(claim(indicator="demandes_asile_total", category="immigration", value=150000, unit=Unit.personnes))
+    assert r.verdict == Verdict.vrai, r
+
+    # évolution sans date de départ : sur un an ; record sans durée : sur toute la série
+    r = referentiel.check(claim(indicator="cambriolages_logement", category="securite", claim_type=ClaimType.evolution,
+                                direction="baisse"), "2026-10-25")
+    assert r.verdict == Verdict.plutot_vrai and "2024" in r.explanation and "2025" in r.explanation, r
+    r = referentiel.check(claim(indicator="premiers_titres_sejour", category="immigration", claim_type=ClaimType.record,
+                                direction="hausse", period_start="2025"), "2026-10-25")
+    assert r.verdict == Verdict.vrai and "d'un record" in r.explanation, r
+
     # objectif ou prévision dans la citation : pas de verdict calculé
     for quote in ("la copie initiale à 4,7 % de déficit", "on vise 5 % de déficit", "ramener le déficit à 4,7 %"):
         assert referentiel.check(claim(indicator="deficit_public_pib", quote=quote, value=4.7, unit=Unit.pourcent)) is None, quote

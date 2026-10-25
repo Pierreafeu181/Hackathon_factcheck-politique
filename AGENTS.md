@@ -12,7 +12,7 @@
 4. il rend un **verdict**, une **correction** et des **sources** ;
 5. il **stocke** tout pour construire un **profil de fiabilité par personnalité politique**.
 
-Contexte : **hackathon de 3 h**, en vue de la présidentielle. Le référentiel de données officielles couvre **l'emploi et le chômage, l'inflation, la croissance, le Smic, la dette et le déficit publics**.
+Contexte : **hackathon de 3 h**, en vue de la présidentielle. Le référentiel de données officielles couvre **l'emploi et le chômage, l'inflation, la croissance, le Smic, la dette et le déficit publics, l'immigration (asile, titres de séjour) et la délinquance enregistrée**.
 Tout le reste (live, autres thèmes, contradictions dans le temps) est dans `docs/ROADMAP.md` — **ne pas le coder maintenant**.
 
 ## 2. Carte du repo
@@ -52,7 +52,7 @@ backend/                 ← MOTEUR D'ANALYSE Python / FastAPI, port 8000
   app/prompts/*.md       ← prompts système (à itérer ici, pas dans le code)
   app/selftest.py        ← autotests sans clé API
 scripts/fetch_insee.py   ← (re)génère data/referentiel/<thème>.json depuis l'API INSEE
-data/referentiel/        ← series.json (config) + emploi.json, economie.json, finances_publiques.json (données figées)
+data/referentiel/        ← series.json (config) + emploi, economie, finances_publiques, immigration, securite .json (données figées)
 data/fixtures/           ← transcripts / requêtes de démo synthétiques
 db/schema.sql            ← schéma SQL (SQLite, compatible Postgres/Supabase)
 schemas/claim.schema.json← JSON Schema du modèle Python (généré)
@@ -134,6 +134,7 @@ python scripts/fetch_insee.py
 - [x] Fournisseur Mistral (offre gratuite, `MISTRAL_API_KEY`) dans `llm.py`, Gemini en secours ; inactif sans clé
 - [x] Date du discours : l'extension envoie la date de publication (YouTube, balises des articles) ; le référentiel compare aux chiffres disponibles à cette date ; les années pas encore publiées (objectifs) ne sont plus comparées — Lots A/C
 - [x] Articles : faits avancés par l'article et par chaque personne citée vérifiés aussi (« Affirmé par … » dans l'explication) ; seules les affirmations de la personnalité vont dans son profil — Lots B/C
+- [x] Référentiel immigration (demandes d'asile, premiers titres de séjour : Eurostat, identiques à la DGEF) et sécurité (10 indicateurs SSMSI sur data.gouv, identiques au bilan 2025) : 40 séries — Lot C
 - [ ] Extension 1.0.1 (date de publication) à envoyer sur le Chrome Web Store : `store/verifpol-1.0.1.zip`
 - [ ] Banque de France (clé du portail développeur) et OCDE (API refusée, 403)
 - [x] Pipeline complet testé sur Gemini 3.5 Flash-Lite (gratuit) : benchmark 10/10 (Claude seul 3/10, Gemini seul 6/10), vidéo réelle en 14 s, chat avec les votes de l'Assemblée. `gemini-3.8-flash` n'a que 20 requêtes/jour en gratuit : il sert de secours

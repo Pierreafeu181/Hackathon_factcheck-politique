@@ -1,0 +1,254 @@
+{
+ "generated_at": "2026-10-25",
+ "source": "INSEE BDM (bdm.insee.fr), Eurostat, data.gouv.fr (SSMSI)",
+ "series": {
+  "demandes_asile_total": {
+   "label": "Demandes d'asile (premières demandes et réexamens)",
+   "eurostat": "migr_asyappctza",
+   "insee_title": "Demandeurs d'asile par type, nationalité, âge et sexe - données annuelles agrégées",
+   "unit": "nombre",
+   "publisher": "Ministère de l'Intérieur (via Eurostat)",
+   "url": "https://ec.europa.eu/eurostat/databrowser/view/migr_asyappctza/default/table?lang=fr",
+   "note": "Eurostat migr_asyappctza, France, annuel. Identique au chiffre de la DGEF (151 665 en 2025)",
+   "last_update": "2026-09-03",
+   "observations": [
+    [
+     "2008",
+     41845.0
+    ],
+    [
+     "2009",
+     47625.0
+    ],
+    [
+     "2010",
+     52725.0
+    ],
+    [
+     "2011",
+     57335.0
+    ],
+    [
+     "2012",
+     61455.0
+    ],
+    [
+     "2013",
+     66265.0
+    ],
+    [
+     "2014",
+     64310.0
+    ],
+    [
+     "2015",
+     76165.0
+    ],
+    [
+     "2016",
+     84270.0
+    ],
+    [
+     "2017",
+     99330.0
+    ],
+    [
+     "2018",
+     137665.0
+    ],
+    [
+     "2019",
+     151070.0
+    ],
+    [
+     "2020",
+     93200.0
+    ],
+    [
+     "2021",
+     120705.0
+    ],
+    [
+     "2022",
+     156570.0
+    ],
+    [
+     "2023",
+     167055.0
+    ],
+    [
+     "2024",
+     157550.0
+    ],
+    [
+     "2025",
+     151665.0
+    ]
+   ]
+  },
+  "demandes_asile_premieres": {
+   "label": "Premières demandes d'asile (hors réexamens)",
+   "eurostat": "migr_asyappctza",
+   "insee_title": "Demandeurs d'asile par type, nationalité, âge et sexe - données annuelles agrégées",
+   "unit": "nombre",
+   "publisher": "Ministère de l'Intérieur (via Eurostat)",
+   "url": "https://ec.europa.eu/eurostat/databrowser/view/migr_asyappctza/default/table?lang=fr",
+   "note": "Eurostat migr_asyappctza, France, annuel",
+   "last_update": "2026-09-03",
+   "observations": [
+    [
+     "2009",
+     42070.0
+    ],
+    [
+     "2010",
+     48030.0
+    ],
+    [
+     "2011",
+     52140.0
+    ],
+    [
+     "2012",
+     54280.0
+    ],
+    [
+     "2013",
+     60475.0
+    ],
+    [
+     "2014",
+     58845.0
+    ],
+    [
+     "2015",
+     70570.0
+    ],
+    [
+     "2016",
+     76790.0
+    ],
+    [
+     "2017",
+     91965.0
+    ],
+    [
+     "2018",
+     126580.0
+    ],
+    [
+     "2019",
+     138290.0
+    ],
+    [
+     "2020",
+     81735.0
+    ],
+    [
+     "2021",
+     103810.0
+    ],
+    [
+     "2022",
+     137605.0
+    ],
+    [
+     "2023",
+     145160.0
+    ],
+    [
+     "2024",
+     129910.0
+    ],
+    [
+     "2025",
+     116475.0
+    ]
+   ]
+  },
+  "premiers_titres_sejour": {
+   "label": "Premiers titres de séjour délivrés",
+   "eurostat": "migr_resfirst",
+   "insee_title": "Permis délivrés pour la première fois par raison, durée de validité et nationalité",
+   "unit": "nombre",
+   "publisher": "Ministère de l'Intérieur (via Eurostat)",
+   "url": "https://ec.europa.eu/eurostat/databrowser/view/migr_resfirst/default/table?lang=fr",
+   "note": "Eurostat migr_resfirst, France, annuel, tous motifs. La DGEF publie en janvier un chiffre provisoire un peu plus élevé (384 230 pour 2025, contre 377 462 ici)",
+   "last_update": "2026-10-22",
+   "observations": [
+    [
+     "2008",
+     188723.0
+    ],
+    [
+     "2009",
+     200649.0
+    ],
+    [
+     "2010",
+     204321.0
+    ],
+    [
+     "2011",
+     199581.0
+    ],
+    [
+     "2012",
+     199500.0
+    ],
+    [
+     "2013",
+     214346.0
+    ],
+    [
+     "2014",
+     220599.0
+    ],
+    [
+     "2015",
+     228687.0
+    ],
+    [
+     "2016",
+     237218.0
+    ],
+    [
+     "2017",
+     254634.0
+    ],
+    [
+     "2018",
+     267426.0
+    ],
+    [
+     "2019",
+     287443.0
+    ],
+    [
+     "2020",
+     237134.0
+    ],
+    [
+     "2021",
+     287179.0
+    ],
+    [
+     "2022",
+     326948.0
+    ],
+    [
+     "2023",
+     338877.0
+    ],
+    [
+     "2024",
+     345587.0
+    ],
+    [
+     "2025",
+     377462.0
+    ]
+   ]
+  }
+ }
+}

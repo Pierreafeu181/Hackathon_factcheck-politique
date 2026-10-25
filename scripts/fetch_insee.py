@@ -8,8 +8,11 @@ https://www.insee.fr/fr/statistiques/serie/<idbank>), relancer ce script, commit
 """
 from __future__ import annotations
 
+import csv
+import io
 import json
 import sys
+from collections import defaultdict
 import time
 import urllib.parse
 import urllib.request
@@ -52,12 +55,32 @@ def fetch_eurostat(dataset: str, filters: dict) -> tuple[dict, list[tuple[str, f
     return {"TITLE_FR": d.get("label"), "LAST_UPDATE": (d.get("updated") or "")[:10]}, obs, power
 
 
+_csv_cache: dict[str, list[dict]] = {}
+
+
+def fetch_datagouv(resource: str, filters: dict) -> tuple[dict, list[tuple[str, float]], int]:
+    """CSV data.gouv (séparateur « ; ») : lignes filtrées, colonne `nombre` additionnée par `annee`."""
+    if resource not in _csv_cache:
+        with urllib.request.urlopen(f"https://www.data.gouv.fr/fr/datasets/r/{resource}", timeout=120) as r:
+            _csv_cache[resource] = list(csv.DictReader(io.StringIO(r.read().decode("utf-8-sig")), delimiter=";"))
+    sums: dict[str, float] = defaultdict(float)
+    for row in _csv_cache[resource]:
+        if all(row.get(k) == v for k, v in filters.items()) and row.get("nombre") not in (None, "", "NA"):
+            sums[row["annee"]] += float(row["nombre"].replace(",", "."))
+    if not sums:
+        raise ValueError(f"{resource} : aucune ligne pour {filters}")
+    return {"TITLE_FR": " / ".join(filters.values()), "LAST_UPDATE": date.today().isoformat()}, sorted(sums.items()), 0
+
+
 def build(theme: str, conf: dict) -> dict:
-    out = {"generated_at": date.today().isoformat(), "source": "INSEE BDM (bdm.insee.fr), API SDMX ; Eurostat pour les comptes publics annuels", "series": {}}
+    out = {"generated_at": date.today().isoformat(), "source": "INSEE BDM (bdm.insee.fr), Eurostat, data.gouv.fr (SSMSI)", "series": {}}
     for key, c in conf.items():
         if c.get("source") == "eurostat":
             attrs, obs, power = fetch_eurostat(c["dataset"], c["filters"])
             ref, url = {"eurostat": c["dataset"]}, EUROSTAT_PAGE.format(c["dataset"])
+        elif c.get("source") == "datagouv":
+            attrs, obs, power = fetch_datagouv(c["resource"], c["filters"])
+            ref, url = {"datagouv_resource": c["resource"]}, c["page"]
         else:
             attrs, obs, power = fetch(c["idbank"])
             ref, url = {"idbank": c["idbank"]}, f"https://www.insee.fr/fr/statistiques/serie/{c['idbank']}"
