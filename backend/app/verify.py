@@ -95,7 +95,18 @@ def _trusted_factcheck(url: str) -> bool:
 
 
 def _clip(value, n: int) -> str:
-    return " ".join(str(value or "").split())[:n]
+    """Champ de tiers pour le prompt : une ligne, sans chevrons (impossible de fermer la balise qui l'encadre)."""
+    return " ".join(str(value or "").replace("<", " ").replace(">", " ").split())[:n]
+
+
+def _safe_url(url: str) -> str | None:
+    """URL reconstruite après validation : HTTPS, rédaction reconnue, aucun espace ni caractère de contrôle."""
+    if not url or len(url) > 500 or any(ch.isspace() or ord(ch) < 32 or ch in "<>\"" for ch in url):
+        return None
+    parts = urlparse(url)
+    if not _trusted_factcheck(url):
+        return None
+    return parts._replace(fragment="").geturl()
 _STOP = {"selon", "depuis", "cette", "entre", "leurs", "notre", "votre", "avoir",
          "etait", "sont", "plus", "moins", "tous", "toutes", "dans", "pour", "avec", "sans", "elle", "ils"}
 
@@ -118,22 +129,23 @@ def published_factchecks(claim: ExtractedClaim, limit: int = 3) -> list[dict]:
     for fc in found:
         theirs = _stems(f"{fc.get('affirmation') or ''} {fc.get('titre') or ''}")
         overlap = len(mine & theirs) / max(len(mine), 1)
-        if fc.get("url") and _trusted_factcheck(fc["url"]) and overlap >= FACTCHECK_MIN_OVERLAP:
+        url = _safe_url(str(fc.get("url") or ""))
+        if url and overlap >= FACTCHECK_MIN_OVERLAP:
             scored.append((overlap, {"media": _clip(fc.get("media"), 80), "date": _clip(fc.get("date"), 10),
                                      "affirmation": _clip(fc.get("affirmation"), 300), "verdict": _clip(fc.get("verdict"), 60),
-                                     "titre": _clip(fc.get("titre"), 200), "url": fc["url"][:500]}))
+                                     "titre": _clip(fc.get("titre"), 200), "url": url}))
     return [fc for _, fc in sorted(scored, key=lambda x: -x[0])[:limit]]
 
 
 # Affirmation répétée (comme les alertes de Full Fact) : une vérification par recherche déjà faite et stockée est réutilisée.
 # Conditions strictes, car le verdict est repris tel quel : même thème, même chiffre, même période, 60 % de mots communs,
 # vérifiée il y a moins de 30 jours et discours à moins de 90 jours d'écart (un chiffre juste peut cesser de l'être).
-MEMORY_MIN_OVERLAP, MEMORY_DAYS, MEMORY_SPEECH_GAP_DAYS = 0.6, 30, 90
+MEMORY_MIN_OVERLAP, MEMORY_MIN_WORDS, MEMORY_DAYS, MEMORY_SPEECH_GAP_DAYS = 0.6, 4, 30, 90
 
 
 def _days_apart(a: str | None, b: str | None) -> float:
     if not a or not b:
-        return 0.0 if not a and not b else float("inf")
+        return float("inf")  # date inconnue d'un côté : jamais considérée comme proche
     try:
         return abs((dt.date.fromisoformat(a[:10]) - dt.date.fromisoformat(b[:10])).days)
     except ValueError:
@@ -148,16 +160,20 @@ def remembered(claim: ExtractedClaim, speech_date: str | None) -> Verification |
     except Exception as e:  # la base ne doit jamais bloquer une vérification
         log.info("mémoire des affirmations indisponible : %s", e)
         return None
-    mine = _stems(f"{claim.claim} {claim.quote}")
+    mine = _stems(claim.claim)
+    if len(mine) < MEMORY_MIN_WORDS:
+        return None  # trop court pour un rapprochement fiable
     for row in rows:
         old: ExtractedClaim = row["claim"]
-        same_numbers = (old.value, old.unit, old.bound, old.period_start, old.period_end) == \
-                       (claim.value, claim.unit, claim.bound, claim.period_start, claim.period_end)
-        overlap = len(mine & _stems(f"{old.claim} {old.quote}")) / max(len(mine), 1)
+        same_numbers = (old.value, old.unit, old.bound, old.period_start, old.period_end, old.claim_type) == \
+                       (claim.value, claim.unit, claim.bound, claim.period_start, claim.period_end, claim.claim_type)
+        theirs = _stems(old.claim)
+        # Jaccard (symétrique) : un long texte qui contient tous les mots d'une autre affirmation ne la « capte » pas
+        overlap = len(mine & theirs) / max(len(mine | theirs), 1)
         if same_numbers and overlap >= MEMORY_MIN_OVERLAP and \
                 _days_apart(row["speech_date"], speech_date) <= MEMORY_SPEECH_GAP_DAYS:
             v: Verification = row["verification"]
-            note = f"Affirmation déjà vérifiée le {row['checked_at']} (dite par {row['speaker']}). "
+            note = f"Affirmation déjà vérifiée le {row['checked_at'][:10]}. "  # jamais de texte fourni par un client
             return v.model_copy(update={"explanation": note + v.explanation})
     return None
 

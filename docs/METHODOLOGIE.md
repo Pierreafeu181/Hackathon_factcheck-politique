@@ -46,7 +46,7 @@ Les recherches par le modèle sont limitées à 6 par analyse (`CHECK_MAX_WEB`),
 
 ## Affirmations répétées
 
-Comme les alertes de Full Fact : une affirmation hors séries officielles déjà vérifiée par recherche dans les 30 derniers jours est réutilisée telle quelle (« Affirmation déjà vérifiée le … (dite par …) »), si elle a le même thème, le même chiffre, la même période, au moins 60 % de mots communs, et si les deux discours ont moins de 90 jours d'écart.
+Comme les alertes de Full Fact : une affirmation hors séries officielles déjà vérifiée par recherche dans les 30 derniers jours est réutilisée telle quelle (« Affirmation déjà vérifiée le … »), si elle a le même thème, le même type, le même chiffre, la même période, une similarité d'au moins 60 % (indice de Jaccard, symétrique : un long texte fourre-tout ne capte pas un verdict) et si les deux discours sont datés à moins de 90 jours d'écart.
 
 ## Types d'affirmations
 
