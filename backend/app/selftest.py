@@ -3,6 +3,7 @@ Lancer depuis backend/ : python -m app.selftest
 """
 from __future__ import annotations
 
+import json
 import os
 import tempfile
 
@@ -146,6 +147,14 @@ def main() -> None:
     assert [c for c, _ in ranked][0] == "a" and "b" not in [c for c, _ in ranked], ranked
     assert tools.run_tool("outil_inexistant", {})[2]
     print("outils :", len(names), "disponibles")
+
+    # Mistral : schéma Pydantic sans $ref (sans réseau)
+    from . import llm
+    from .models import ExtractionResult
+    inlined = json.dumps(llm._inline_refs(ExtractionResult.model_json_schema()))
+    assert "$ref" not in inlined and "$defs" not in inlined and "timestamp_start" in inlined
+    assert llm._text([{"type": "thinking", "thinking": "…"}, {"type": "text", "text": "ok"}]) == "ok"
+    print("llm : fournisseur", llm.PROVIDER, "/", llm.MODEL)
 
     # base de données
     db.init()
