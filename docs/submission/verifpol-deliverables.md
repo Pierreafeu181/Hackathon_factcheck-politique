@@ -33,7 +33,7 @@ Numbers are compared in code, not by the LLM, whenever an official series exists
 | Engine | Vérif'Pol | Naive baseline | Official source | Time per claim |
 |---|---|---|---|---|
 | Claude Sonnet 5.5 | **10/10** (9/10 before the bound fix) | 3/10 | **10/10** vs 0/10 | 14 s |
-| Gemini 3.5 Flash-Lite (free tier, in production) | **10/10** | 6/10 | **10/10** vs 0/10 | 55 s |
+| Gemini 3.5 Flash-Lite (free tier, in production) | **10/10** | 5/10 | **10/10** vs 0/10 | 26 s |
 
 | Claim (translated) | Truth (official figure) | Vérif'Pol | Baseline |
 |---|---|---|---|
