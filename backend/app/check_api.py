@@ -10,7 +10,8 @@ import hashlib
 import os
 import re
 import unicodedata
-from concurrent.futures import ThreadPoolExecutor
+import logging
+from concurrent.futures import ThreadPoolExecutor, wait
 from urllib.parse import urlparse
 
 from . import db
@@ -21,6 +22,13 @@ from .transcript import to_prompt_text, video_id_from_url
 from .verify import verify
 
 MAX_CLAIMS = int(os.getenv("CHECK_MAX_CLAIMS", "15"))
+# Au-delà, on répond avec ce qui est prêt : les recherches continuent et leurs résultats, gardés en mémoire (verify.py),
+# servent à la prochaine analyse. Personne n'attend 10 min devant le panneau.
+DEADLINE_S = float(os.getenv("CHECK_DEADLINE_S", "240"))
+PENDING = ("Vérification encore en cours au moment de répondre (recherche dans les sources officielles) : "
+           "relancez l'analyse dans quelques minutes pour obtenir le verdict.")
+_pool = ThreadPoolExecutor(max_workers=int(os.getenv("CHECK_WORKERS", "6")))
+log = logging.getLogger(__name__)
 # Tous les thèmes : le référentiel couvre l'emploi, le reste part en recherche web.
 CATEGORIES = [c for c in Category if c != Category.autre]
 
@@ -88,8 +96,22 @@ def check(req: CheckRequest) -> CheckResponse:
 
     article = req.source.kind == "article"
     claims = extract_claims(to_prompt_text(segments), speaker, CATEGORIES, req.date, article=article)[:MAX_CLAIMS]
-    with ThreadPoolExecutor(max_workers=6) as pool:
-        verifications = list(pool.map(lambda c: verify(c, req.date), claims))
+    futures = [_pool.submit(verify, c, req.date) for c in claims]
+    wait(futures, timeout=DEADLINE_S)
+    pending = {i for i, f in enumerate(futures) if not f.done()}
+    verifications = []
+    for f in futures:
+        if not f.done():
+            verifications.append(Verification(verdict=Verdict.inverifiable, method=Method.aucun, confidence=0.0,
+                                              explanation=PENDING))
+        elif f.exception():
+            log.warning("vérification impossible : %s", f.exception())
+            verifications.append(Verification(verdict=Verdict.inverifiable, method=Method.aucun, confidence=0.0,
+                                              explanation="La vérification de cette affirmation a échoué."))
+        else:
+            verifications.append(f.result())
+    if pending:
+        log.warning("%d vérification(s) encore en cours après %.0f s", len(pending), DEADLINE_S)
 
     video_id = video_id_from_url(req.source.url) if req.source.kind == "youtube" else None
     speech_id = f"yt:{video_id}" if video_id else "url:" + hashlib.sha1(req.source.url.encode()).hexdigest()[:12]
@@ -99,7 +121,9 @@ def check(req: CheckRequest) -> CheckResponse:
         speech = Speech(id=speech_id, video_id=video_id, url=req.source.url, title=req.source.title,
                         date=req.date, speaker=req.politician)
         db.save_speech(speech, db.dump_transcript(segments))
-        for cid, c, v in zip(ids, claims, verifications):
+        for i, (cid, c, v) in enumerate(zip(ids, claims, verifications)):
+            if i in pending:
+                continue  # pas de verdict provisoire dans le profil
             if article and not same_person(c.author, req.politician.name):
                 continue  # fait de l'article ou d'une autre personne citée : pas dans le profil de la personnalité
             db.save_result(ClaimResult(id=cid, speech_id=speech_id, claim=c, verification=v), req.politician)

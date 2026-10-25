@@ -272,6 +272,20 @@ def main() -> None:
     assert db.profile("personne-article").n_claims == 1  # seule sa propre affirmation compte
     print("/check article : 3 affirmations, 1 dans le profil")
 
+    # délai global : ce qui n'est pas prêt revient « en cours », hors du profil
+    import time as _time
+    slow = [claim(quote="rapide", value=last_v, unit=Unit.pourcent), claim(quote="lente", indicator=None, value=1.0)]
+    check_api.extract_claims = lambda *a, **k: slow
+    check_api.verify = lambda c, *a, **k: (_time.sleep(3) if c.quote == "lente" else None) or Verification(
+        verdict=Verdict.vrai, method=Method.referentiel, explanation="ok", confidence=0.9, sources=referentiel.check(slow[0]).sources)
+    check_api.DEADLINE_S, t0 = 0.5, _time.time()
+    resp = check_api.check(CheckRequest.model_validate({
+        "source": {"kind": "youtube", "url": "https://www.youtube.com/watch?v=deadline001", "title": "t"},
+        "segments": [{"text": "…", "start": 0}], "politician": {"name": "Personne Délai"}}))
+    assert _time.time() - t0 < 2 and [c.verdict for c in resp.claims] == ["vrai", "invérifiable"], resp
+    assert "encore en cours" in resp.claims[1].explanation and db.profile("personne-delai").n_claims == 1
+    print("/check délai : réponse partielle en", round(_time.time() - t0, 1), "s")
+
     print("\nOK — tous les autotests passent")
 
 

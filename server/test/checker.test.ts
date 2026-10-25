@@ -21,3 +21,23 @@ test("le moteur de démo renvoie toujours le même verdict pour la même phrase"
   const req = { source: { kind: "article" as const, url: "u" }, segments: [{ text: "La dette atteint 3 300 milliards d'euros." }] };
   assert.equal(demoCheck(req).claims[0].verdict, demoCheck(req).claims[0].verdict);
 });
+
+test("postJson : attend au-delà du délai de fetch, abandonne après le délai demandé", async () => {
+  const { createServer } = await import("node:http");
+  const { postJson } = await import("../src/checker.ts");
+  const server = createServer((req, res) => {
+    const delay = req.url === "/lent" ? 400 : 50;
+    setTimeout(() => { res.writeHead(200, { "Content-Type": "application/json" }); res.end('{"ok":true}'); }, delay);
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  const { port } = server.address() as { port: number };
+  try {
+    const ok = await postJson(`http://127.0.0.1:${port}/rapide`, { x: 1 }, 1000);
+    assert.equal(ok.status, 200);
+    assert.deepEqual(JSON.parse(ok.text), { ok: true });
+    await assert.rejects(postJson(`http://127.0.0.1:${port}/lent`, { x: 1 }, 100), /délai dépassé/);
+  } finally {
+    server.closeAllConnections();
+    server.close();
+  }
+});

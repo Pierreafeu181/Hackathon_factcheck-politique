@@ -136,6 +136,7 @@ python scripts/fetch_insee.py
 - [x] Articles : faits avancés par l'article et par chaque personne citée vérifiés aussi (« Affirmé par … » dans l'explication) ; seules les affirmations de la personnalité vont dans son profil — Lots B/C
 - [x] Référentiel immigration (demandes d'asile, premiers titres de séjour : Eurostat, identiques à la DGEF) et sécurité (10 indicateurs SSMSI sur data.gouv, identiques au bilan 2025) : 40 séries — Lot C
 - [x] Option `GEMINI_EXTRACT_MODEL` (ex. gemini-3.8-flash) pour l'extraction, désactivée par défaut : 242 s par affirmation au benchmark contre 3 s, réservée à la pré-analyse de la démo ; confusions d'indicateurs voisins → imprécis en code ; garde-fou objectifs élargi (Sénat, loi de finances…) — Lots B/C
+- [x] Longues vidéos : le serveur Node attend le moteur jusqu'à 15 min (fetch coupait à 5 min → 502) ; le moteur répond au plus tard après 4 min de vérifications (`CHECK_DEADLINE_S`), le reste revient « en cours » et sert à la relance (mémoire 24 h) — Lots A/C
 - [ ] Extension 1.0.1 (date de publication) à envoyer sur le Chrome Web Store : `store/verifpol-1.0.1.zip`
 - [ ] Banque de France (clé du portail développeur) et OCDE (API refusée, 403)
 - [x] Pipeline complet testé sur Gemini 3.5 Flash-Lite (gratuit) : benchmark 10/10 (Claude seul 3/10, Gemini seul 6/10), vidéo réelle en 14 s, chat avec les votes de l'Assemblée. `gemini-3.8-flash` n'a que 20 requêtes/jour en gratuit : il sert de secours
@@ -164,6 +165,7 @@ Quand tu termines une tâche, **coche-la ici** dans ton commit.
 - **Chômage : BIT ≠ France Travail.** Le « taux de chômage » (INSEE, BIT) n'est pas le « nombre de demandeurs d'emploi » (France Travail, cat. A/B/C). Une confusion entre les deux donne `imprecis`, pas `faux`.
 - **France entière vs hors Mayotte**, **CVS** : à toujours préciser dans la note des sources.
 - **Périodes** : « depuis 2017 » = moyenne annuelle 2017 comparée au dernier point publié (voir `docs/METHODOLOGIE.md`).
+- **Délais** : `fetch` (undici) coupe à 5 min ; le serveur Node appelle le moteur avec `postJson` (`checker.ts`, `ENGINE_TIMEOUT_MS`, 15 min). Le moteur rend la main après `CHECK_DEADLINE_S` (240 s) de vérifications.
 - **Ports** : moteur Python sur 8000, serveur Node sur 8790. L'extension parle au serveur Node, qui parle au moteur Python.
 - **Gemini, offre gratuite** : pas de recherche Google (payante) → la vérification hors INSEE passe par nos outils (`tools.py`). Quota par minute : `llm.py` limite les appels parallèles (`GEMINI_MAX_PARALLEL`) et relance sur 429. Les échanges peuvent servir à Google pour améliorer ses modèles.
 - **Claude** (si `LLM_PROVIDER=anthropic`) : pas de `temperature`, pas de `budget_tokens`, pas de prefill ; utiliser `output_config.effort`. Recherche web `web_search_20260209`.

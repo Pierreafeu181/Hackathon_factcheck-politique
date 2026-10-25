@@ -1,4 +1,26 @@
+import { request as httpRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
 import type { ChatRequest, ChatResponse, CheckRequest, CheckResponse, Claim, Evidence, Verdict } from "../../shared/contract.ts";
+
+/** Délai maximal d'une analyse par le moteur (une longue interview peut dépasser 5 min, le délai par défaut de fetch). */
+const ENGINE_TIMEOUT_MS = Number(process.env.ENGINE_TIMEOUT_MS) || 15 * 60_000;
+
+/** POST JSON sans le délai de 5 min de fetch (undici) : seul ENGINE_TIMEOUT_MS s'applique. */
+export function postJson(url: string, body: unknown, timeoutMs = ENGINE_TIMEOUT_MS): Promise<{ status: number; text: string }> {
+  return new Promise((resolve, reject) => {
+    const data = Buffer.from(JSON.stringify(body));
+    const send = url.startsWith("https:") ? httpsRequest : httpRequest;
+    const req = send(url, { method: "POST", headers: { "Content-Type": "application/json", "Content-Length": data.length } }, (res) => {
+      const chunks: Buffer[] = [];
+      res.on("data", (c: Buffer) => chunks.push(c));
+      res.on("end", () => resolve({ status: res.statusCode ?? 0, text: Buffer.concat(chunks).toString("utf8") }));
+      res.on("error", reject);
+    });
+    req.setTimeout(timeoutMs, () => req.destroy(new Error(`délai dépassé (${Math.round(timeoutMs / 60_000)} min)`)));
+    req.on("error", reject);
+    req.end(data);
+  });
+}
 
 /**
  * Point d'entrée de l'analyse. Si CHECKER_URL est défini, on transmet la requête au moteur
@@ -7,13 +29,9 @@ import type { ChatRequest, ChatResponse, CheckRequest, CheckResponse, Claim, Evi
 export async function check(req: CheckRequest): Promise<CheckResponse> {
   const url = process.env.CHECKER_URL;
   if (!url) return demoCheck(req);
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(req),
-  });
-  if (!res.ok) throw new Error(`Moteur d'analyse : HTTP ${res.status}`);
-  return res.json();
+  const res = await postJson(url, req);
+  if (res.status !== 200) throw new Error(`Moteur d'analyse : HTTP ${res.status}`);
+  return JSON.parse(res.text) as CheckResponse;
 }
 
 /**
