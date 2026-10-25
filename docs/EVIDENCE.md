@@ -15,7 +15,7 @@ Benchmark run on 2026-10-25 with `gemini-3.5-flash-lite`: 10 claims dated 2026-1
 
 | | Vérif'Pol | Naive baseline |
 |---|---|---|
-| Correct verdicts | **10/10** | 7/10 |
+| Correct verdicts | **10/10** | 6/10 |
 | Verdicts backed by an official source | **10/10** | 0/10 |
 | Average time per claim | 3 s | 10 s |
 
@@ -29,5 +29,5 @@ Benchmark run on 2026-10-25 with `gemini-3.5-flash-lite`: 10 claims dated 2026-1
 | Il y a moins de deux millions de demandeurs d'emploi en catégorie A. | **faux** · 3 323 000 (DARES, T2 2026) | faux ✅ | faux ✅ |
 | L'inflation sur un an dépasse aujourd'hui 4 %. | **faux** · 3,1 % (INSEE, sept. 2026) | trompeur ✅ | faux ✅ |
 | L'inflation est repassée au-dessus de 3 % sur un an. | **vrai** · 3,1 % (INSEE, sept. 2026) | vrai ✅ | invérifiable ❌ |
-| La dette publique atteint 119 % du PIB. | **vrai** · 119,0 % (INSEE, T2 2026) | vrai ✅ | vrai ✅ |
+| La dette publique atteint 119 % du PIB. | **vrai** · 119,0 % (INSEE, T2 2026) | vrai ✅ | invérifiable ❌ |
 | La dette publique est d'environ 2 000 milliards d'euros. | **faux** · 3 595,5 Md€ (INSEE, T2 2026) | faux ✅ | faux ✅ |
