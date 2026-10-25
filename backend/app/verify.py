@@ -15,7 +15,7 @@ import threading
 import time
 import unicodedata
 from collections import OrderedDict
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 import datetime as dt
 
@@ -101,12 +101,15 @@ def _clip(value, n: int) -> str:
 
 def _safe_url(url: str) -> str | None:
     """URL reconstruite après validation : HTTPS, rédaction reconnue, aucun espace ni caractère de contrôle."""
-    if not url or len(url) > 500 or any(ch.isspace() or ord(ch) < 32 or ch in "<>\"" for ch in url):
+    if not url or len(url) > 500 or any(ch.isspace() or ord(ch) < 32 or ch in "<>\"\\@" for ch in url):
         return None
     parts = urlparse(url)
-    if not _trusted_factcheck(url):
+    if parts.username or parts.password or parts.port or not _trusted_factcheck(url):
         return None
-    return parts._replace(fragment="").geturl()
+    # reconstruite à partir du domaine vérifié : le lien ouvert est bien celui qu'on a contrôlé
+    path = quote(parts.path or "/", safe="/%-._~!$&'()*+,;=:")
+    query = quote(parts.query, safe="=&%-._~+,;:/")
+    return f"https://{parts.hostname}{path}" + (f"?{query}" if query else "")
 _STOP = {"selon", "depuis", "cette", "entre", "leurs", "notre", "votre", "avoir",
          "etait", "sont", "plus", "moins", "tous", "toutes", "dans", "pour", "avec", "sans", "elle", "ils"}
 
