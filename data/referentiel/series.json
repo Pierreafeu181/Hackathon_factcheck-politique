@@ -1,5 +1,5 @@
 {
-  "_doc": "Configuration des séries du référentiel. Lue par scripts/fetch_insee.py qui génère <fichier>.json. Ids vérifiés sur l'API BDM INSEE le 2026-10-22. Volumes convertis en milliers.",
+  "_doc": "Configuration des séries du référentiel. Lue par scripts/fetch_insee.py qui génère <thème>.json. Ids INSEE vérifiés sur l'API BDM le 2026-10-22 (emploi) et le 2026-10-25 (économie, finances publiques). Volumes convertis dans l'unité indiquée (milliers, milliards). source=eurostat : jeu Eurostat + filtres (données notifiées par l'INSEE). factor : multiplicateur appliqué aux valeurs (-1 pour publier un déficit en positif).",
   "emploi": {
     "taux_chomage_bit": {"idbank": "001688527", "label": "Taux de chômage au sens du BIT (ensemble)", "unit": "pourcent", "note": "INSEE, Enquête Emploi, France hors Mayotte, CVS, trimestriel"},
     "taux_chomage_bit_fe": {"idbank": "011818543", "label": "Taux de chômage au sens du BIT (ensemble), France entière", "unit": "pourcent", "note": "INSEE, Enquête Emploi, France entière (nouvelle base), CVS, trimestriel"},
@@ -16,5 +16,21 @@
     "emploi_salarie_public": {"idbank": "001796853", "label": "Emploi salarié public (milliers)", "unit": "milliers", "note": "INSEE, Estimations d'emploi, France hors Mayotte, CVS, trimestriel"},
     "demandeurs_emploi_cat_a": {"idbank": "010597456", "label": "Demandeurs d'emploi inscrits à France Travail, catégorie A (milliers)", "unit": "milliers", "publisher": "DARES / France Travail (via INSEE)", "note": "France hors Mayotte, CVS-CJO, trimestriel. Ce n'est PAS le chômage BIT."},
     "demandeurs_emploi_cat_abc": {"idbank": "010597571", "label": "Demandeurs d'emploi inscrits à France Travail, catégories A, B, C (milliers)", "unit": "milliers", "publisher": "DARES / France Travail (via INSEE)", "note": "France hors Mayotte, CVS-CJO, trimestriel. Ce n'est PAS le chômage BIT."}
+  },
+  "economie": {
+    "inflation": {"idbank": "011814632", "label": "Inflation : glissement annuel des prix à la consommation (IPC), ensemble", "unit": "pourcent", "note": "INSEE, IPC base 2025, ensemble des ménages, France, mensuel. Glissement sur un an, en %"},
+    "croissance_pib_trimestrielle": {"idbank": "011794844", "label": "Croissance du PIB en volume, d'un trimestre sur l'autre", "unit": "pourcent", "note": "INSEE, comptes trimestriels base 2020, CVS-CJO, variation par rapport au trimestre précédent"},
+    "croissance_pib_annuelle": {"idbank": "011779995", "label": "Croissance annuelle du PIB en volume", "unit": "pourcent", "note": "INSEE, comptes nationaux annuels base 2020, variation en volume sur un an"},
+    "pib_valeur": {"idbank": "011779992", "label": "Produit intérieur brut (PIB) annuel en valeur (milliards d'euros)", "unit": "milliards", "note": "INSEE, comptes nationaux annuels base 2020, prix courants"},
+    "smic_horaire_brut": {"idbank": "000822484", "label": "Smic horaire brut (euros)", "unit": "euros", "note": "INSEE, montant en vigueur, mensuel"},
+    "smic_mensuel_brut": {"idbank": "000879877", "label": "Smic mensuel brut pour 35 heures (euros)", "unit": "euros", "note": "INSEE, 151,67 heures par mois, mensuel"},
+    "smic_mensuel_net": {"idbank": "000879878", "label": "Smic mensuel net pour 35 heures (euros)", "unit": "euros", "note": "INSEE, 151,67 heures par mois, après déduction des cotisations, mensuel"}
+  },
+  "finances_publiques": {
+    "dette_publique_pib": {"idbank": "010777608", "label": "Dette publique au sens de Maastricht, en % du PIB", "unit": "pourcent", "note": "INSEE, dette trimestrielle des administrations publiques, base 2020, fin de trimestre"},
+    "dette_publique_milliards": {"idbank": "010777616", "label": "Dette publique au sens de Maastricht (milliards d'euros)", "unit": "milliards", "note": "INSEE, dette trimestrielle des administrations publiques, base 2020, fin de trimestre"},
+    "deficit_public_pib": {"source": "eurostat", "dataset": "gov_10dd_edpt1", "filters": {"geo": "FR", "na_item": "B9", "sector": "S13", "unit": "PC_GDP"}, "factor": -1, "label": "Déficit public (besoin de financement des administrations publiques), en % du PIB", "unit": "pourcent", "publisher": "INSEE (notification à Eurostat)", "note": "Eurostat gov_10dd_edpt1, France, annuel. Valeur positive = déficit"},
+    "deficit_public_milliards": {"source": "eurostat", "dataset": "gov_10dd_edpt1", "filters": {"geo": "FR", "na_item": "B9", "sector": "S13", "unit": "MIO_EUR"}, "factor": -1, "label": "Déficit public (besoin de financement des administrations publiques), en milliards d'euros", "unit": "milliards", "publisher": "INSEE (notification à Eurostat)", "note": "Eurostat gov_10dd_edpt1, France, annuel. Valeur positive = déficit"},
+    "depenses_publiques_pib": {"source": "eurostat", "dataset": "gov_10a_main", "filters": {"geo": "FR", "na_item": "TE", "sector": "S13", "unit": "PC_GDP"}, "label": "Dépenses publiques totales, en % du PIB", "unit": "pourcent", "publisher": "INSEE (notification à Eurostat)", "note": "Eurostat gov_10a_main, administrations publiques, France, annuel"}
   }
 }

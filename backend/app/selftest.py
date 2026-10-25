@@ -56,6 +56,37 @@ def main() -> None:
     assert r.verdict in {Verdict.faux, Verdict.imprecis}, r
     print("record :", r.verdict.value, "—", r.facts)
 
+    # séries mensuelles et annuelles (inflation, déficit) : périodes selon la fréquence
+    inf, dfc = series["inflation"], series["deficit_public_pib"]
+    sept = next(v for p, v in inf.obs if p == "2026-09")
+    assert referentiel.value_at(inf, "2026-09") == (sept, "2026-09")
+    assert referentiel.value_at(inf, "2026-T2")[1] == "moyenne 2026-Q2"
+    assert referentiel.value_at(dfc, "2024") == (next(v for p, v in dfc.obs if p == "2024"), "2024")
+    assert referentiel.value_at(dfc, "2024-T3")[1] == "2024"
+    assert referentiel.value_at(series["taux_chomage_bit"], "2026-05")[1] == "2026-Q2"
+    r = referentiel.check(claim(indicator="inflation", category="economie", value=sept, unit=Unit.pourcent, period_end="2026-09"))
+    assert r.verdict == Verdict.vrai, r
+    r = referentiel.check(claim(indicator="deficit_public_pib", category="finances_publiques", value=dfc.obs[-1][1] + 2, unit=Unit.pourcent))
+    assert r.verdict == Verdict.faux, r
+    # évolution d'un volume en unités : « +X milliards de dette depuis 2017 »
+    debt = series["dette_publique_milliards"]
+    d2017, _ = referentiel.value_at(debt, "2017")
+    r = referentiel.check(claim(indicator="dette_publique_milliards", category="finances_publiques", claim_type=ClaimType.evolution,
+                                direction="hausse", period_start="2017", value=round(debt.obs[-1][1] - d2017), unit=Unit.milliards))
+    assert r.verdict == Verdict.vrai, r
+    r = referentiel.check(claim(indicator="dette_publique_milliards", category="finances_publiques", claim_type=ClaimType.evolution,
+                                direction="hausse", period_start="2017", value=round((debt.obs[-1][1] - d2017) / 2), unit=Unit.milliards))
+    assert r.verdict == Verdict.trompeur, r
+    print(f"inflation {sept} % (2026-09), déficit {dfc.obs[-1][1]} % ({dfc.obs[-1][0]}), dette 2017→ OK")
+
+    # verdict web durci en code quand le modèle trouve un taux officiel (« un sur cinq » = 20 % contre 15,4 %)
+    from .verify import rate_verdict
+    poor = claim(indicator=None, category="autre", value=20.0, unit=Unit.pourcent)
+    assert rate_verdict(poor, 15.4)[0] == Verdict.faux and rate_verdict(poor, 19.9)[0] == Verdict.vrai
+    assert rate_verdict(claim(indicator=None, value=20.0, unit=Unit.milliers), 15.4) is None
+
+    assert referentiel.check(claim(value=8.0, unit=Unit.pourcent, period_end="2026-S1")) is None  # période illisible
+
     # indicateur inconnu → None (part en recherche web)
     assert referentiel.check(claim(indicator="taux_pauvrete", value=14.0)) is None
 
@@ -97,6 +128,19 @@ def main() -> None:
     assert unreliable("https://fr.wikipedia.org/wiki/Dette") and unreliable("https://x.com/a/status/1")
     assert not unreliable("https://www.insee.fr/fr/statistiques/serie/001688527")
     assert ("legifrance_chercher" in names) == bool(os.getenv("PISTE_CLIENT_ID"))
+    assert {"insee_publications", "page_officielle_lire"} <= names
+    assert open_data.official_url("https://www.insee.fr/fr/statistiques/5759045")
+    assert open_data.official_url("https://www.economie.gouv.fr/x")
+    for bad in ("http://www.insee.fr/", "https://insee.fr.exemple.com/", "https://faux-insee.fr/", "https://www.insee.fr:8443/",
+                "https://fr.wikipedia.org/wiki/Insee"):
+        assert not open_data.official_url(bad), bad
+    assert tools.run_tool("page_officielle_lire", {"url": "https://blog.exemple.com/chiffres"})[2]  # refusé sans appel réseau
+    title, lines = open_data.page_text("<html><head><title>Pauvreté | Insee</title><script>x=1</script></head><body>"
+                                       "<nav>Menu</nav><h1>Taux</h1><p>En 2024, le taux de pauvreté est de 15,4 %.</p>"
+                                       "<table><tr><th>Année</th><th>Taux</th></tr><tr><td>2024</td><td>15,4</td></tr></table></body></html>")
+    assert title == "Pauvreté | Insee" and "Menu" not in lines and "x=1" not in " ".join(lines), lines
+    assert "Année | Taux" in lines and "2024 | 15,4" in lines, lines
+    assert open_data._passages(lines, "taux pauvreté 2024")[0] == "Taux", open_data._passages(lines, "taux pauvreté 2024")
     ranked = open_data._rank([("a", "Impôts et cotisations sociales"), ("b", "Population"), ("c", "Impôt sur le revenu")],
                              "impôts cotisations", key=lambda x: x[1])
     assert [c for c, _ in ranked][0] == "a" and "b" not in [c for c, _ in ranked], ranked

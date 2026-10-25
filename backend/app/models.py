@@ -39,6 +39,7 @@ class Unit(str, Enum):
     points = "points"            # écart de taux (−2 points)
     pourcent_variation = "pourcent_variation"  # variation relative (+10 %)
     milliers = "milliers"
+    milliards = "milliards"      # milliards d'euros (dette, déficit, PIB)
     personnes = "personnes"
     euros = "euros"
     annees = "annees"            # pour les records : « depuis 40 ans »
@@ -80,8 +81,8 @@ class ExtractedClaim(BaseModel):
         default=None,
         description="'min' pour « plus de / au moins / dépasse / au-dessus de », 'max' pour « moins de / sous / "
                     "en dessous de », null pour une valeur exacte ou approchée (« environ », « près de »)")
-    period_start: Optional[str] = Field(description="Début de période, format AAAA ou AAAA-Tn, ou null")
-    period_end: Optional[str] = Field(description="Fin de période, format AAAA ou AAAA-Tn, ou null (= aujourd'hui)")
+    period_start: Optional[str] = Field(description="Début de période, format AAAA, AAAA-Tn ou AAAA-MM, ou null")
+    period_end: Optional[str] = Field(description="Fin de période, format AAAA, AAAA-Tn ou AAAA-MM, ou null (= aujourd'hui)")
     geo: str = Field(description="Périmètre géographique, 'France' par défaut")
 
 

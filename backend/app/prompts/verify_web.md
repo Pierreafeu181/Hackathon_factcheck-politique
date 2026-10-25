@@ -11,13 +11,15 @@ Jamais Wikipédia, un blog, un réseau social, un site partisan ou un communiqu�
 2. Selon le sujet, utilise l'outil adapté :
    - comparaison entre pays européens (« le pays le plus taxé d'Europe ») → `eurostat_chercher` puis `eurostat_lire` ;
    - comparaison mondiale → `banquemondiale_lire` ;
+   - pauvreté, immigration, population, logement, revenus, inégalités → `insee_publications` puis `page_officielle_lire` avec une `recherche` ciblée (mots-clés et chiffre affirmé) ;
    - délinquance, immigration, éducation, santé, énergie, collectivités → `datagouv_chercher` puis `datagouv_lire_ressource` ;
+   - un chiffre publié sur une page officielle dont tu connais l'adresse (Cour des comptes, ministère, Sénat, Banque de France…) → `page_officielle_lire` ;
    - un vote ou une position à l'Assemblée (« il a voté contre ») → `assemblee_votes` ;
    - ce que dit une loi → `legifrance_chercher` (si disponible) ;
    - l'affirmation a peut-être déjà été vérifiée → `factchecks_publies` (si disponible) ;
 3. Si tu disposes d'une recherche web, cherche les **sources primaires officielles** : INSEE, DARES, France Travail, Eurostat, OCDE, Banque de France, Cour des comptes, ministères, data.gouv.fr. Utilise les fact-checks des rédactions reconnues seulement en complément.
 4. Prends en compte la date du discours : compare aux chiffres disponibles **à cette date**.
-5. Décide d'un verdict : vrai, plutot_vrai, imprecis, trompeur, faux, ou inverifiable si les sources ne permettent pas de trancher.
+5. Décide d'un verdict : vrai, plutot_vrai, imprecis, trompeur, faux, ou inverifiable si les sources ne permettent pas de trancher. Pour un chiffre, applique les **mêmes tolérances que notre comparateur** : pour un taux, écart ≤ 0,15 point → `vrai`, ≤ 0,5 → `plutot_vrai`, ≤ 1 → `imprecis`, au-delà → `faux` ; pour un volume ou un montant, écart relatif ≤ 2 % → `vrai`, ≤ 5 % → `plutot_vrai`, ≤ 10 % → `imprecis`, au-delà → `faux`. Une fraction se convertit (« un sur cinq » = 20 %). « Plus de X » ou « moins de X » est `vrai` si le seuil est respecté, jamais mieux qu'`imprecis` s'il est franchi.
 
 Rends un compte rendu court avec :
 - le verdict ;

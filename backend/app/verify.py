@@ -12,7 +12,7 @@ import json
 import logging
 
 from . import llm, referentiel
-from .models import ExplanationText, ExtractedClaim, Method, Verdict, Verification, WebVerification
+from .models import ClaimType, ExplanationText, ExtractedClaim, Method, Unit, Verdict, Verification, WebVerification
 
 log = logging.getLogger(__name__)
 
@@ -27,6 +27,23 @@ UNRELIABLE_HOSTS = ("wikipedia.org", "wikiwix.com", "x.com", "twitter.com", "fac
 def unreliable(url: str) -> bool:
     host = (urlparse(url).hostname or "").lower()
     return any(host == h or host.endswith("." + h) for h in UNRELIABLE_HOSTS)
+
+
+SEVERITY = {Verdict.vrai: 0, Verdict.plutot_vrai: 1, Verdict.imprecis: 2, Verdict.trompeur: 3, Verdict.faux: 3,
+            Verdict.inverifiable: -1}
+
+
+def rate_verdict(claim: ExtractedClaim, official: float | None) -> tuple[Verdict, float] | None:
+    """Taux affirmé vs taux officiel trouvé par le modèle : verdict avec les tolérances du référentiel."""
+    if claim.claim_type != ClaimType.niveau or claim.unit != Unit.pourcent or claim.value is None or official is None:
+        return None
+    if not (0 <= claim.value <= 100 and 0 <= official <= 100):
+        return None
+    gap = referentiel._gap(claim.value, official, claim.bound)
+    verdict = referentiel._grade(gap, referentiel.RATE_TOL)
+    if claim.bound and gap > 0 and verdict in (Verdict.vrai, Verdict.plutot_vrai):
+        verdict = Verdict.imprecis
+    return verdict, gap
 
 
 def verify(claim: ExtractedClaim, speech_date: str | None = None, use_web: bool = True) -> Verification:
@@ -79,9 +96,15 @@ def _from_web(claim: ExtractedClaim, speech_date: str | None) -> Verification:
     seen_urls = {s["url"] for s in seen}
     sources = [s for s in structured.sources if s.url in seen_urls and not unreliable(s.url)]
     verdict = structured.verdict if sources else Verdict.inverifiable
+    explanation = structured.explanation
+    if verdict != Verdict.inverifiable and (graded := rate_verdict(claim, structured.official_value)):
+        code_verdict, gap = graded
+        if SEVERITY[code_verdict] > SEVERITY[verdict]:  # le code ne fait que durcir un verdict trop indulgent
+            verdict = code_verdict
+            explanation += f" Écart de {gap:.1f} point avec la valeur officielle : verdict calculé par le comparateur."
     return Verification(
         verdict=verdict, method=Method.web,
         official_value=structured.official_value, official_period=structured.official_period,
-        correction=structured.correction, explanation=structured.explanation, sources=sources,
+        correction=structured.correction, explanation=explanation, sources=sources,
         confidence=min(structured.confidence, WEB_CONFIDENCE_CAP) if sources else 0.0,
     )

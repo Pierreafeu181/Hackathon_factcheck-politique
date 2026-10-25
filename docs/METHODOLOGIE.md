@@ -22,10 +22,15 @@
 
 Les seuils sont des choix de l'équipe, assumés et affichés. Ils sont modifiables en tête de `referentiel.py`.
 
+Une évolution en volume exprimée en unités (« 1 300 milliards de dette en plus depuis 2017 », « 2 millions d'emplois créés ») est comparée à l'écart absolu de la série, avec les tolérances des volumes.
+
+Hors référentiel (recherche par le modèle), le même barème est demandé dans le prompt. Si le modèle trouve un **taux** officiel pour une affirmation de niveau, le verdict est recalculé en code et ne peut qu'être durci (`verify.rate_verdict`).
+
 ## Conventions de période
 
-- « en 2017 » ou « depuis 2017 » → **moyenne annuelle 2017** ;
-- « au 2e trimestre 2024 » → le trimestre exact ;
+- « en 2017 » ou « depuis 2017 » → **moyenne annuelle 2017** (série annuelle, comme le déficit : la valeur de 2017) ;
+- « au 2e trimestre 2024 » → le trimestre exact (série mensuelle : moyenne des trois mois) ;
+- « en septembre 2026 » → le mois exact (série trimestrielle : le trimestre qui le contient) ;
 - présent ou « aujourd'hui » → **dernier point publié** à la date de l'analyse (attention : pour un discours ancien, renseigner `date`).
 
 ## Pièges métier (à expliquer, pas à sanctionner)

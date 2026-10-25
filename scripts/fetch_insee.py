@@ -1,4 +1,5 @@
-"""Régénère data/referentiel/<thème>.json depuis l'API BDM de l'INSEE (gratuite, sans clé).
+"""Régénère data/referentiel/<thème>.json depuis l'API BDM de l'INSEE et, pour les séries annuelles de
+finances publiques absentes de la BDM en base 2020, depuis Eurostat (données notifiées par l'INSEE). Gratuit, sans clé.
 
 Usage : python scripts/fetch_insee.py [thème]      (défaut : tous les thèmes de series.json)
 
@@ -10,6 +11,7 @@ from __future__ import annotations
 import json
 import sys
 import time
+import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 from datetime import date
@@ -18,36 +20,57 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 REF = ROOT / "data" / "referentiel"
 API = "https://bdm.insee.fr/series/sdmx/data/SERIES_BDM/{}"
+EUROSTAT = "https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/data/{}?{}"
+EUROSTAT_PAGE = "https://ec.europa.eu/eurostat/databrowser/view/{}/default/table?lang=fr"
+UNIT_POWER = {"milliers": 3, "milliards": 9}  # puissance de 10 de l'unité du référentiel
 
 
-def fetch(idbank: str) -> tuple[dict, list[tuple[str, float]]]:
+def fetch(idbank: str) -> tuple[dict, list[tuple[str, float]], int]:
+    """Série INSEE → (attributs, observations triées, puissance de 10 des valeurs)."""
     with urllib.request.urlopen(API.format(idbank), timeout=60) as r:
         root = ET.fromstring(r.read())
     series = next(el for el in root.iter() if el.tag.endswith("Series"))
-    mult = int(series.get("UNIT_MULT", "0"))
     obs = []
     for o in series:
         v = o.get("OBS_VALUE")
         if v not in (None, "", "NaN"):
-            obs.append((o.get("TIME_PERIOD"), float(v), mult))
+            obs.append((o.get("TIME_PERIOD"), float(v)))
     obs.sort(key=lambda x: x[0])
-    return dict(series.attrib), [(p, v) for p, v, _ in obs]
+    return dict(series.attrib), obs, int(series.get("UNIT_MULT", "0"))
+
+
+def fetch_eurostat(dataset: str, filters: dict) -> tuple[dict, list[tuple[str, float]], int]:
+    """Jeu Eurostat filtré sur une seule série (JSON-stat) → (attributs, observations, puissance de 10)."""
+    url = EUROSTAT.format(dataset, urllib.parse.urlencode({"format": "JSON", "lang": "FR", **filters}))
+    with urllib.request.urlopen(url, timeout=90) as r:
+        d = json.load(r)
+    if any(n > 1 for i, n in zip(d["id"], d["size"]) if i != "time"):
+        raise ValueError(f"{dataset} : les filtres doivent désigner une seule série")
+    times = sorted(d["dimension"]["time"]["category"]["index"].items(), key=lambda t: t[1])
+    obs = [(p, float(d["value"][str(i)])) for p, i in times if str(i) in d["value"]]
+    power = 6 if filters.get("unit") == "MIO_EUR" else 0
+    return {"TITLE_FR": d.get("label"), "LAST_UPDATE": (d.get("updated") or "")[:10]}, obs, power
 
 
 def build(theme: str, conf: dict) -> dict:
-    out = {"generated_at": date.today().isoformat(), "source": "INSEE BDM (bdm.insee.fr), API SDMX", "series": {}}
+    out = {"generated_at": date.today().isoformat(), "source": "INSEE BDM (bdm.insee.fr), API SDMX ; Eurostat pour les comptes publics annuels", "series": {}}
     for key, c in conf.items():
-        attrs, obs = fetch(c["idbank"])
-        mult = int(attrs.get("UNIT_MULT", "0"))
-        if c["unit"] == "milliers" and mult == 0:
-            obs = [(p, round(v / 1000, 1)) for p, v in obs]
+        if c.get("source") == "eurostat":
+            attrs, obs, power = fetch_eurostat(c["dataset"], c["filters"])
+            ref, url = {"eurostat": c["dataset"]}, EUROSTAT_PAGE.format(c["dataset"])
+        else:
+            attrs, obs, power = fetch(c["idbank"])
+            ref, url = {"idbank": c["idbank"]}, f"https://www.insee.fr/fr/statistiques/serie/{c['idbank']}"
+        scale = c.get("factor", 1) * 10 ** (power - UNIT_POWER.get(c["unit"], power))
+        if scale != 1:
+            obs = [(p, round(v * scale, 2) + 0.0) for p, v in obs]  # + 0.0 : pas de « -0.0 »
         out["series"][key] = {
             "label": c["label"],
-            "idbank": c["idbank"],
+            **ref,
             "insee_title": attrs.get("TITLE_FR"),
             "unit": c["unit"],
             "publisher": c.get("publisher", "INSEE"),
-            "url": f"https://www.insee.fr/fr/statistiques/serie/{c['idbank']}",
+            "url": url,
             "note": c.get("note", ""),
             "last_update": attrs.get("LAST_UPDATE"),
             "observations": obs,

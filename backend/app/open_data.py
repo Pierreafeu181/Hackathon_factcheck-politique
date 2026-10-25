@@ -1,7 +1,8 @@
 """Outils de vérification sur les données ouvertes, en plus de l'INSEE (insee_api.py) et de l'Assemblée (assemblee.py).
 
 Sans clé : Eurostat (comparaisons européennes), data.gouv.fr (producteurs publics certifiés uniquement :
-délinquance, immigration, éducation, santé…), Banque mondiale (comparaisons internationales).
+délinquance, immigration, éducation, santé…), Banque mondiale (comparaisons internationales), publications de
+l'INSEE (recherche du site insee.fr) et lecture des pages de sites officiels (liste fermée OFFICIAL_HOSTS).
 Pas de Wikipédia ni de source modifiable par tous : seulement des producteurs officiels ou des fact-checks publiés.
 Avec clé (activés seulement si la variable est définie dans backend/.env) :
 Google Fact Check Tools (GOOGLE_FACTCHECK_API_KEY), Légifrance via PISTE (PISTE_CLIENT_ID / PISTE_CLIENT_SECRET).
@@ -12,12 +13,14 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import threading
 import time
 import unicodedata
 import urllib.parse
 import urllib.request
 from collections import OrderedDict
+from html.parser import HTMLParser
 
 UA = {"User-Agent": "VerifPol/0.1 (hackathon fact-checking; contact via GitHub bab6429/factcheck-politique)"}
 _cache: OrderedDict[str, tuple[float, object]] = OrderedDict()
@@ -198,6 +201,147 @@ def worldbank_read(indicator: str, countries: list[str] | None = None, since: st
     return {"indicateur": d[1][0]["indicator"]["value"], "lignes": rows[:200],
             **({} if rows else {"note": "aucune valeur publiée pour ces pays et ces années : essayer un autre indicateur ou Eurostat"}),
             "url": f"https://donnees.banquemondiale.org/indicateur/{indicator}"}
+
+
+# ---------------------------------------------------------------- Sites officiels (sans clé)
+
+# Seuls sites lisibles par page_officielle_lire : producteurs de statistiques publiques, administrations,
+# institutions de contrôle, Parlement, institutions européennes et internationales.
+OFFICIAL_HOSTS = ("insee.fr", "gouv.fr", "vie-publique.fr", "service-public.fr", "ccomptes.fr", "assemblee-nationale.fr",
+                  "senat.fr", "banque-france.fr", "conseil-constitutionnel.fr", "conseil-etat.fr", "francetravail.org",
+                  "europa.eu", "oecd.org")
+PAGE_MAX_BYTES = 3_000_000
+PAGE_MAX_CHARS = 8_000
+
+
+def official_url(url: str) -> bool:
+    parts = urllib.parse.urlparse(url)
+    host = (parts.hostname or "").lower()
+    return parts.scheme == "https" and parts.port in (None, 443) and any(host == h or host.endswith("." + h) for h in OFFICIAL_HOSTS)
+
+
+class _OfficialRedirect(urllib.request.HTTPRedirectHandler):
+    """Une redirection ne doit jamais faire sortir de la liste des sites officiels."""
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if not official_url(newurl):
+            raise SourceError("redirection vers un site hors de la liste officielle, page non lue")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_official_opener = urllib.request.build_opener(_OfficialRedirect)
+
+
+class _PageText(HTMLParser):
+    """HTML → texte : garde titres, paragraphes et tableaux (cellules séparées par « | »), saute menus et scripts."""
+    SKIP = {"script", "style", "noscript", "svg", "nav", "header", "footer", "form", "button", "select", "iframe", "template"}
+    BLOCK = {"p", "div", "li", "tr", "h1", "h2", "h3", "h4", "h5", "h6", "section", "article", "br", "table", "ul", "ol",
+             "dd", "dt", "caption", "figcaption", "blockquote", "main"}
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.skip, self.in_title, self.title, self.parts = 0, False, "", []
+
+    def handle_starttag(self, tag, attrs):
+        if tag in self.SKIP:
+            self.skip += 1
+        elif tag == "title":
+            self.in_title = True
+        elif tag in ("td", "th"):
+            self.parts.append(" | ")
+        elif tag in self.BLOCK:
+            self.parts.append("\n")
+
+    def handle_endtag(self, tag):
+        if tag in self.SKIP:
+            self.skip = max(0, self.skip - 1)
+        elif tag == "title":
+            self.in_title = False
+        elif tag in self.BLOCK:
+            self.parts.append("\n")
+
+    def handle_data(self, data):
+        if self.in_title:
+            self.title += data
+        elif not self.skip:
+            self.parts.append(data)
+
+
+def page_text(html: str) -> tuple[str, list[str]]:
+    """Titre et lignes de texte d'une page HTML (testé dans selftest)."""
+    parser = _PageText()
+    parser.feed(html)
+    lines, out = "".join(parser.parts).split("\n"), []
+    for line in lines:
+        line = re.sub(r"\s+", " ", line).strip(" |")
+        if line and (not out or out[-1] != line):
+            out.append(line)
+    return re.sub(r"\s+", " ", parser.title).strip(), out
+
+
+def _passages(lines: list[str], keywords: str) -> list[str]:
+    """Lignes qui contiennent les mots-clés (racines de 5 lettres) ou les nombres cherchés, avec leur voisine."""
+    words = {w[:5] for w in _norm(keywords).split() if len(w) > 2 or w.isdigit()}
+    scores = [sum(w in _norm(line) for w in words) for line in lines]
+    best = max(scores, default=0)
+    if not best:
+        return []
+    keep: set[int] = set()
+    for i, n in enumerate(scores):
+        if n >= max(1, best - 1):
+            keep.update({i - 1, i, i + 1})
+    return [lines[i] for i in sorted(keep) if 0 <= i < len(lines)]
+
+
+def official_page_read(url: str, keywords: str = "") -> dict:
+    if not official_url(url):
+        raise SourceError("site hors de la liste des sources officielles : " + ", ".join(OFFICIAL_HOSTS))
+    key = "page|" + url
+    with _cache_lock:
+        hit = _cache.get(key)
+    if hit and time.time() - hit[0] < CACHE_TTL:
+        title, lines = hit[1]
+    else:
+        req = urllib.request.Request(url, headers={**UA, "Accept": "text/html,text/plain"})
+        try:
+            with _official_opener.open(req, timeout=40) as r:
+                ctype = r.headers.get("Content-Type", "")
+                if "pdf" in ctype:
+                    raise SourceError("document PDF, non lu par cet outil : chercher la page HTML de la publication")
+                if "html" not in ctype and "text" not in ctype:
+                    raise SourceError(f"format non lisible ({ctype or 'inconnu'})")
+                body = r.read(PAGE_MAX_BYTES + 1)
+                charset = r.headers.get_content_charset() or "utf-8"
+        except urllib.error.HTTPError as e:
+            raise SourceError(f"HTTP {e.code} sur {urllib.parse.urlparse(url).hostname}")
+        except (urllib.error.URLError, TimeoutError) as e:
+            raise SourceError(f"{urllib.parse.urlparse(url).hostname} injoignable ({getattr(e, 'reason', e)})")
+        if len(body) > PAGE_MAX_BYTES:
+            raise SourceError("page trop volumineuse")
+        title, lines = page_text(body.decode(charset, "replace"))
+        with _cache_lock:
+            _cache[key] = (time.time(), (title, lines))
+            while len(_cache) > CACHE_MAX:
+                _cache.popitem(last=False)
+    found = _passages(lines, keywords) if keywords.strip() else []
+    text = "\n".join(found or lines)
+    return {"titre": title or url, "url": url, "editeur": urllib.parse.urlparse(url).hostname,
+            ("extraits" if found else "texte"): text[:PAGE_MAX_CHARS],
+            **({"note": "texte tronqué : préciser `recherche` pour cibler un passage"} if len(text) > PAGE_MAX_CHARS else {}),
+            **({"note_recherche": "aucun passage ne contient ces mots : début de la page"} if keywords.strip() and not found else {})}
+
+
+def insee_publications_search(keywords: str) -> dict:
+    """Recherche du site insee.fr : Insee Première, Insee Focus, chiffres clés, tableaux de l'économie française…"""
+    payload = {"q": keywords, "start": 0, "rows": 10, "sortFields": [{"field": "score", "order": "desc"}],
+               "filters": [], "facetsQuery": []}
+    d = _get("https://www.insee.fr/fr/solr/consultation", headers={"Content-Type": "application/json"},
+             data=json.dumps(payload).encode())
+    docs = [x for x in d.get("documents", []) if x.get("type") == "statistiques" and x.get("id")]
+    return {"publications": [{
+        "titre": x.get("titre"), "sous_titre": (x.get("sousTitre") or "")[:200],
+        "collection": (x.get("famille") or {}).get("libelleFr"), "date": (x.get("dateDiffusion") or "")[:10],
+        "url": f"https://www.insee.fr/fr/statistiques/{x['id']}"} for x in docs[:8]],
+        "conseil": "Lire une publication avec page_officielle_lire (url + recherche) ; préférer la plus récente."}
 
 
 # ---------------------------------------------------------------- Google Fact Check Tools (clé)

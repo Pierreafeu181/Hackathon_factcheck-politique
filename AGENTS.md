@@ -12,7 +12,7 @@
 4. il rend un **verdict**, une **correction** et des **sources** ;
 5. il **stocke** tout pour construire un **profil de fiabilité par personnalité politique**.
 
-Contexte : **hackathon de 3 h**, en vue de la présidentielle. Le référentiel de données officielles couvre pour l'instant **l'emploi et le chômage**.
+Contexte : **hackathon de 3 h**, en vue de la présidentielle. Le référentiel de données officielles couvre **l'emploi et le chômage, l'inflation, la croissance, le Smic, la dette et le déficit publics**.
 Tout le reste (live, autres thèmes, contradictions dans le temps) est dans `docs/ROADMAP.md` — **ne pas le coder maintenant**.
 
 ## 2. Carte du repo
@@ -45,14 +45,14 @@ backend/                 ← MOTEUR D'ANALYSE Python / FastAPI, port 8000
   app/referentiel.py     ← séries officielles + comparaison DÉTERMINISTE
   app/llm.py             ← client LLM unique : Gemini (défaut) ou Claude, sortie structurée, boucle d'outils
   app/tools.py           ← registre des outils de vérification exposés au modèle
-  app/open_data.py       ← Eurostat, data.gouv.fr (producteurs publics certifiés), Banque mondiale, Google Fact Check*, Légifrance* (*clé)
+  app/open_data.py       ← Eurostat, data.gouv.fr (producteurs publics certifiés), Banque mondiale, publications INSEE, pages de sites officiels, Google Fact Check*, Légifrance* (*clé)
   app/assemblee.py       ← votes de l'Assemblée nationale (open data officiel, indexé au démarrage)
   app/insee_api.py       ← outils Claude : API BDM de l'INSEE en direct (thèmes → séries → observations)
   app/db.py              ← SQLite (politicians, speeches, claims, verifications) + profils
   app/prompts/*.md       ← prompts système (à itérer ici, pas dans le code)
   app/selftest.py        ← autotests sans clé API
 scripts/fetch_insee.py   ← (re)génère data/referentiel/<thème>.json depuis l'API INSEE
-data/referentiel/        ← series.json (config) + emploi.json (données figées)
+data/referentiel/        ← series.json (config) + emploi.json, economie.json, finances_publiques.json (données figées)
 data/fixtures/           ← transcripts / requêtes de démo synthétiques
 db/schema.sql            ← schéma SQL (SQLite, compatible Postgres/Supabase)
 schemas/claim.schema.json← JSON Schema du modèle Python (généré)
@@ -128,6 +128,8 @@ python scripts/fetch_insee.py
 - [x] Garde-fous du chat : hors sujet (code, devoirs…), consignes de vote et injections refusés (`prompts/chat.md`)
 - [x] Passage à Gemini Flash (offre gratuite), Claude en option — `llm.py`
 - [x] Sources de vérification : Eurostat, data.gouv.fr (producteurs publics certifiés seulement), Banque mondiale, votes de l'Assemblée nationale ; Google Fact Check et Légifrance dès que leurs clés sont dans `.env`. Wikipédia, réseaux sociaux et blogs exclus comme preuves ; hiérarchie des sources dans les prompts — Lot C
+- [x] Référentiel élargi à 27 séries : inflation, croissance, PIB, Smic (INSEE), dette (INSEE), déficit et dépenses publiques (Eurostat) ; séries mensuelles et annuelles gérées par le comparateur — Lot C
+- [x] Outils sans clé `insee_publications` (recherche insee.fr) et `page_officielle_lire` (liste fermée de sites officiels) ; verdict web durci en code quand un taux officiel est trouvé — Lot C
 - [ ] Banque de France (clé du portail développeur) et OCDE (API refusée, 403)
 - [x] Pipeline complet testé sur Gemini 3.5 Flash-Lite (gratuit) : benchmark 10/10 (Claude seul 3/10, Gemini seul 6/10), vidéo réelle en 14 s, chat avec les votes de l'Assemblée. `gemini-3.8-flash` n'a que 20 requêtes/jour en gratuit : il sert de secours
 - [x] Aiven PostgreSQL branché (`DATABASE_URL`) : tables créées, analyses écrites et relues depuis Aiven

@@ -67,6 +67,19 @@ _TOOLS: list[tuple[dict, Callable[[dict], object], Callable[[dict, object], list
       "input_schema": _obj({"mots_cles": S, "depute": S}, ["mots_cles"])},
      lambda a: assemblee.search(a["mots_cles"], a.get("depute", "")),
      lambda a, r: [{"title": f"Assemblée nationale – scrutin n° {s['numero']}", "url": s["url"]} for s in r.get("scrutins", [])[:5]], None),
+    ({"name": "insee_publications",
+      "description": "Cherche dans les publications de l'INSEE (Insee Première, Insee Focus, chiffres clés, tableaux de "
+                     "l'économie française) par mots-clés en français : pauvreté, immigration, population, logement, revenus, "
+                     "inégalités… Renvoie titres, dates et URL à lire avec page_officielle_lire.",
+      "input_schema": _obj({"mots_cles": S}, ["mots_cles"])},
+     lambda a: open_data.insee_publications_search(a["mots_cles"]), lambda a, r: [], None),
+    ({"name": "page_officielle_lire",
+      "description": "Lit le texte d'une page HTML d'un site officiel (insee.fr, *.gouv.fr, vie-publique.fr, ccomptes.fr, "
+                     "assemblee-nationale.fr, senat.fr, banque-france.fr, europa.eu, oecd.org…). `recherche` : mots-clés ou "
+                     "nombres pour ne renvoyer que les passages utiles. Les autres sites et les PDF sont refusés.",
+      "input_schema": _obj({"url": S, "recherche": S}, ["url"])},
+     lambda a: open_data.official_page_read(a["url"], a.get("recherche", "")),
+     lambda a, r: _source(f"{r.get('editeur')} – {r.get('titre')}", r.get("url")), None),
     ({"name": "factchecks_publies",
       "description": "Cherche si l'affirmation a déjà été vérifiée par des médias (AFP Factuel, Libération, Le Monde, franceinfo…).",
       "input_schema": _obj({"affirmation": S}, ["affirmation"])},

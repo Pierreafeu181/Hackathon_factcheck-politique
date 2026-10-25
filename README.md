@@ -10,7 +10,7 @@ Sur une vidéo YouTube, un article, une phrase sélectionnée ou un podcast suiv
 4. l'extension affiche un **verdict**, une **explication avec correction** et les **sources**. Un clic renvoie au bon moment de la vidéo ;
 5. tout est **stocké** pour construire une base de discours et un **profil de fiabilité** par personnalité.
 
-> Hackathon, présidentielle. Le MVP vérifie sur données officielles la thématique **emploi / chômage** (15 séries). Les autres thèmes passent par la recherche web.
+> Hackathon, présidentielle. Le moteur vérifie en code, sur données officielles figées, l'**emploi**, l'**inflation**, la **croissance**, le **Smic**, la **dette** et le **déficit** (27 séries). Les autres thèmes passent par les outils de données ouvertes et les sites officiels.
 > **Agents de code : lisez [`AGENTS.md`](AGENTS.md) en premier.**
 
 ## Les trois briques
@@ -70,8 +70,8 @@ Au premier lancement, seul le dernier épisode de chaque flux est traité (`MAX_
 
 ## Sources de données
 
-- **INSEE, API BDM** (SDMX, sans clé) : 15 séries emploi figées dans `data/referentiel/emploi.json`, régénérables avec `python scripts/fetch_insee.py`. Détails dans [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md).
-- **Google Fact Check Tools** : `https://factchecktools.googleapis.com/v1alpha1/claims:search?query=…&languageCode=fr&key=…`, gratuit avec une clé Google Cloud. L'API renvoie les fact-checks déjà publiés (AFP Factuel, Les Décodeurs, Libé CheckNews…) avec leur verdict. Il faut l'interroger en premier : si un journaliste a déjà vérifié la phrase, on affiche son verdict. Ce n'est pas encore branché (voir Lot C). [Présentation](https://newsinitiative.withgoogle.com/resources/trainings/google-fact-check-tools/)
+- **INSEE, API BDM** (SDMX, sans clé) et **Eurostat** : 27 séries figées dans `data/referentiel/` (emploi, économie, finances publiques), régénérables avec `python scripts/fetch_insee.py`. Détails dans [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md).
+- **Google Fact Check Tools** : `https://factchecktools.googleapis.com/v1alpha1/claims:search?query=…&languageCode=fr&key=…`, gratuit avec une clé Google Cloud. L'API renvoie les fact-checks déjà publiés (AFP Factuel, Les Décodeurs, Libé CheckNews…) avec leur verdict. Branché (outil `factchecks_publies`) dès que `GOOGLE_FACTCHECK_API_KEY` est dans `backend/.env`. [Présentation](https://newsinitiative.withgoogle.com/resources/trainings/google-fact-check-tools/)
 
 ## Documentation
 

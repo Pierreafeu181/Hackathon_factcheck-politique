@@ -4,7 +4,7 @@ A Chrome extension and an engine hosted on Aiven that check what politicians say
 
 ## The data layer in action
 
-**What data.** What politicians say: YouTube captions and press articles read in the browser, or audio (videos without captions, TikTok, Reels, X, radio podcasts) transcribed by Deepgram. What is true: official producers only. 15 INSEE/DARES employment series frozen from the INSEE API, plus live tools the model calls itself: the full INSEE catalogue (inflation, debt, GDP…), Eurostat, World Bank, data.gouv.fr (certified public producers only) and every vote of the Assemblée nationale. No Wikipedia, blogs or social networks as evidence.
+**What data.** What politicians say: YouTube captions and press articles read in the browser, or audio (videos without captions, TikTok, Reels, X, radio podcasts) transcribed by Deepgram. What is true: official producers only. 27 official series frozen from INSEE and Eurostat (employment, inflation, growth, minimum wage, public debt and deficit), compared in code, plus live tools the model calls itself: the full INSEE catalogue (inflation, debt, GDP…), Eurostat, World Bank, data.gouv.fr (certified public producers only), INSEE publications, pages of official sites (closed list) and every vote of the Assemblée nationale. No Wikipedia, blogs or social networks as evidence.
 
 **Where it lives.** Aiven PostgreSQL stores every speech, transcript, claim and verification (verdict, official value, sources), which builds a reliability profile per politician (Profiles tab). The engine runs on Aiven Runtime next to the database; a cache avoids re-analysing a page; the user's history stays in the browser.
 
@@ -52,4 +52,4 @@ Numbers are compared in code, not by the LLM, whenever an official series exists
 
 **Before / after.** The first run scored 9/10: "under-25 unemployment is above 20%" was judged false because the comparator ignored "more than / less than". We added a floor/ceiling field to extraction and to the comparison code; the second run scored 10/10.
 
-**Limits.** A 10-claim set built by the team: a demonstration, not a statistical evaluation. The frozen reference covers employment only; other topics rely on live INSEE data or the web, with confidence capped at 0.7.
+**Limits.** A 10-claim set built by the team: a demonstration, not a statistical evaluation. The benchmark covers employment, inflation and debt; the frozen reference now also covers growth, the minimum wage and the deficit. Other topics rely on live official data, with confidence capped at 0.7.

@@ -3,10 +3,10 @@
 Le LLM ne décide jamais d'un verdict chiffré : il normalise l'affirmation (indicateur,
 valeur, unité, période) et c'est ce module qui compare aux données officielles.
 
-Conventions de période (documentées dans docs/METHODOLOGIE.md) :
-- "AAAA-Tn" / "AAAA-Qn" → le trimestre exact ;
-- "AAAA-MM"            → le trimestre qui contient ce mois ;
-- "AAAA"               → moyenne des observations de l'année ;
+Conventions de période (documentées dans docs/METHODOLOGIE.md), selon la fréquence de la série :
+- "AAAA-Tn" / "AAAA-Qn" → le trimestre exact (série mensuelle : moyenne de ses mois ; annuelle : l'année) ;
+- "AAAA-MM"            → le mois exact (série trimestrielle : le trimestre qui le contient ; annuelle : l'année) ;
+- "AAAA"               → moyenne des observations de l'année (série annuelle : la valeur de l'année) ;
 - None en fin de période → dernière observation disponible.
 """
 from __future__ import annotations
@@ -99,10 +99,19 @@ def _t(period: str) -> float:
 
 
 def _norm(period: str) -> str:
-    period = period.strip().upper().replace("T", "Q") if _Q.match(period.strip().upper().replace("T", "Q")) else period.strip()
-    if m := _M.match(period):
-        return f"{m[1]}-Q{(int(m[2]) - 1) // 3 + 1}"
-    return period
+    """« 2026-t2 » → « 2026-Q2 » ; le reste inchangé."""
+    period = period.strip().upper()
+    return period.replace("T", "Q") if _Q.match(period.replace("T", "Q")) else period
+
+
+def _quarter(month_period: str) -> str:
+    y, m = month_period.split("-")
+    return f"{y}-Q{(int(m) - 1) // 3 + 1}"
+
+
+def _mean(s: Series, prefix: str, months: set[str] | None = None) -> tuple[float, str] | None:
+    vals = [v for p, v in s.obs if p.startswith(prefix) and (months is None or p in months)]
+    return (round(mean(vals), 2), f"moyenne {prefix if months is None else _quarter(min(months))}") if vals else None
 
 
 def value_at(s: Series, period: str | None) -> tuple[float, str] | None:
@@ -110,13 +119,27 @@ def value_at(s: Series, period: str | None) -> tuple[float, str] | None:
     if not period:
         return s.obs[-1][1], s.obs[-1][0]
     period = _norm(period)
+    last = s.obs[-1][0]
+    monthly, annual = bool(_M.match(last)), bool(_Y.match(last))
+    if (q := _Q.match(period)) and monthly:
+        y, n = q[1], int(q[2])
+        return _mean(s, y, {f"{y}-{m:02d}" for m in range(3 * n - 2, 3 * n + 1)}) or _before(s, period)
+    if _M.match(period) and not monthly:
+        period = period[:4] if annual else _quarter(period)
+    elif _Q.match(period) and annual:
+        period = period[:4]
     if _Y.match(period):
-        vals = [v for p, v in s.obs if p.startswith(period)]
-        return (round(mean(vals), 2), f"moyenne {period}") if vals else None
+        if annual:
+            return next(((v, p) for p, v in s.obs if p == period), None) or _before(s, period)
+        return _mean(s, period)
     for p, v in s.obs:
         if p == period:
             return v, p
-    # période absente (ex. trimestre pas encore publié) : dernier point antérieur
+    return _before(s, period)
+
+
+def _before(s: Series, period: str) -> tuple[float, str] | None:
+    """Période absente (ex. pas encore publiée) : dernier point antérieur."""
     before = [(p, v) for p, v in s.obs if _t(p) <= _t(period)]
     return (before[-1][1], before[-1][0]) if before else None
 
@@ -152,12 +175,15 @@ def check(claim: ExtractedClaim) -> CheckResult | None:
     s = load().get(claim.indicator or "")
     if s is None:
         return None
-    if claim.claim_type == ClaimType.niveau:
-        return _check_level(claim, s)
-    if claim.claim_type == ClaimType.evolution:
-        return _check_evolution(claim, s)
-    if claim.claim_type == ClaimType.record:
-        return _check_record(claim, s)
+    try:
+        if claim.claim_type == ClaimType.niveau:
+            return _check_level(claim, s)
+        if claim.claim_type == ClaimType.evolution:
+            return _check_evolution(claim, s)
+        if claim.claim_type == ClaimType.record:
+            return _check_record(claim, s)
+    except ValueError:  # période illisible renvoyée par le modèle (« 2026-S1 ») : on passe à la recherche
+        return None
     return None
 
 
@@ -203,10 +229,15 @@ def _check_evolution(c: ExtractedClaim, s: Series) -> CheckResult | None:
                            facts + " Le sens est correct, l'ampleur n'est pas chiffrée.", srcs, 0.7)
 
     claimed = abs(c.value)
-    if c.unit == Unit.pourcent_variation or not s.is_rate:
+    if c.unit == Unit.pourcent_variation or (not s.is_rate and c.unit == Unit.pourcent):
         official_mag = abs(rel)
         verdict = _grade(_gap(claimed, official_mag, c.bound) / max(official_mag, 1e-9), VOLUME_TOL, Verdict.trompeur)
         facts += f" Affirmé : {BOUND_LABEL[c.bound]}{claimed} % de variation."
+    elif not s.is_rate:
+        # « 2 millions d'emplois créés », « 1 000 milliards de dette en plus » : écart absolu, dans l'unité de la série
+        official_mag = abs(delta)
+        verdict = _grade(_gap(claimed, official_mag, c.bound) / max(official_mag, 1e-9), VOLUME_TOL, Verdict.trompeur)
+        facts += f" Affirmé : {BOUND_LABEL[c.bound]}{claimed} {s.unit} de variation."
     else:
         official_mag = abs(delta)
         verdict = _grade(_gap(claimed, official_mag, c.bound), RATE_TOL, Verdict.trompeur)
