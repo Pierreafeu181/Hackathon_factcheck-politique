@@ -87,6 +87,11 @@ def main() -> None:
     assert referentiel.check(claim(value=8.0, unit=Unit.pourcent), "1970-01-01") is None  # avant le début de la série
     assert referentiel.check(claim(value=8.0, unit=Unit.pourcent), "pas une date").official_period == last_p
 
+    # objectif ou prévision dans la citation : pas de verdict calculé
+    for quote in ("la copie initiale à 4,7 % de déficit", "on vise 5 % de déficit", "ramener le déficit à 4,7 %"):
+        assert referentiel.check(claim(indicator="deficit_public_pib", quote=quote, value=4.7, unit=Unit.pourcent)) is None, quote
+    assert referentiel.check(claim(indicator="deficit_public_pib", quote="le déficit est de 5,1 %", value=5.1, unit=Unit.pourcent))
+
     # année pas encore publiée (objectif) : pas de verdict calculé
     assert referentiel.check(claim(indicator="deficit_public_pib", category="finances_publiques", value=5.0,
                                    unit=Unit.pourcent, period_start="2027", period_end="2027")) is None

@@ -260,10 +260,16 @@ def _grade(diff: float, tol: dict[str, float], worst: Verdict = Verdict.faux) ->
     return worst
 
 
+# Objectif ou prévision (« on vise 4,7 % de déficit », « la copie initiale à 4,7 % ») : jamais comparé à un chiffre
+# publié. Garde-fou en plus de la consigne d'extraction, que les petits modèles ne suivent pas toujours.
+TARGET = re.compile(r"\b(vis(e|ons|ent|er|é|ait)|objectifs?|cibles?|ramener|prévoi[ts]?|prévu[es]*|copie|devrai(t|ent)|"
+                    r"d'ici|projet de (loi|budget)|PLF|PLFSS|trajectoire)\b", re.IGNORECASE)
+
+
 def check(claim: ExtractedClaim, speech_date: str | None = None) -> CheckResult | None:
     """Renvoie un verdict calculé, ou None si le référentiel ne couvre pas l'affirmation."""
     s = load().get(claim.indicator or "")
-    if s is None:
+    if s is None or TARGET.search(claim.quote or ""):
         return None
     if speech_date:
         try:
