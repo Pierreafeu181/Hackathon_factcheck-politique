@@ -126,9 +126,10 @@ def _gemini():
 
 
 FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-3.1-flash-lite")
-# Extraction (une requête par vidéo, l'étape où les erreurs coûtent le plus) : modèle plus solide, limité à 20 requêtes
-# par jour en gratuit ; saturé ou quota épuisé → modèle rapide habituel. GEMINI_EXTRACT_MODEL= (vide) pour désactiver.
-EXTRACT_MODEL = os.getenv("GEMINI_EXTRACT_MODEL", "gemini-3.8-flash")
+# Extraction sur un modèle plus solide (ex. gemini-3.8-flash), facultatif : 20 requêtes/jour en gratuit et très lent
+# (benchmark : 242 s par affirmation contre 3 s). Utile pour pré-analyser les vidéos de démo, pas en production.
+# Saturé ou quota épuisé → modèle rapide habituel.
+EXTRACT_MODEL = os.getenv("GEMINI_EXTRACT_MODEL", "")
 _down_until: dict[str, float] = {}  # modèle → instant jusqu'auquel on l'évite (surcharge, quota du jour)
 
 
