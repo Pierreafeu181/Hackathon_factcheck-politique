@@ -285,6 +285,16 @@ def main() -> None:
     assert _time.time() - t0 < 2 and [c.verdict for c in resp.claims] == ["vrai", "invérifiable"], resp
     assert "encore en cours" in resp.claims[1].explanation and db.profile("personne-delai").n_claims == 1
     print("/check délai : réponse partielle en", round(_time.time() - t0, 1), "s")
+    # file pleine : réponse immédiate « serveur très sollicité », jamais d'attente
+    real_backlog, check_api._backlog = check_api._backlog, __import__("threading").BoundedSemaphore(1)
+    check_api._backlog.acquire()
+    try:
+        resp = check_api.check(CheckRequest.model_validate({
+            "source": {"kind": "youtube", "url": "https://www.youtube.com/watch?v=backlog0001", "title": "t"},
+            "segments": [{"text": "…", "start": 0}]}))
+        assert all("très sollicité" in c.explanation for c in resp.claims), resp
+    finally:
+        check_api._backlog = real_backlog
 
     print("\nOK — tous les autotests passent")
 

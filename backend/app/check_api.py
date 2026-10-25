@@ -11,6 +11,7 @@ import os
 import re
 import unicodedata
 import logging
+import threading
 from concurrent.futures import ThreadPoolExecutor, wait
 from urllib.parse import urlparse
 
@@ -27,8 +28,21 @@ MAX_CLAIMS = int(os.getenv("CHECK_MAX_CLAIMS", "15"))
 DEADLINE_S = float(os.getenv("CHECK_DEADLINE_S", "240"))
 PENDING = ("Vérification encore en cours au moment de répondre (recherche dans les sources officielles) : "
            "relancez l'analyse dans quelques minutes pour obtenir le verdict.")
+BUSY = "Serveur très sollicité : cette affirmation n'a pas pu être vérifiée maintenant. Relancez l'analyse un peu plus tard."
 _pool = ThreadPoolExecutor(max_workers=int(os.getenv("CHECK_WORKERS", "6")))
+# File partagée entre toutes les requêtes : bornée, pour qu'une longue vidéo ne retarde pas indéfiniment les autres.
+MAX_BACKLOG = int(os.getenv("CHECK_MAX_BACKLOG", "30"))
+_backlog = threading.BoundedSemaphore(MAX_BACKLOG)
 log = logging.getLogger(__name__)
+
+
+def _submit(claim, date):
+    """Place une vérification dans la file partagée, ou None si elle est pleine."""
+    if not _backlog.acquire(blocking=False):
+        return None
+    future = _pool.submit(verify, claim, date)
+    future.add_done_callback(lambda _: _backlog.release())  # aussi appelé si la tâche est annulée
+    return future
 # Tous les thèmes : le référentiel couvre l'emploi, le reste part en recherche web.
 CATEGORIES = [c for c in Category if c != Category.autre]
 
@@ -96,12 +110,18 @@ def check(req: CheckRequest) -> CheckResponse:
 
     article = req.source.kind == "article"
     claims = extract_claims(to_prompt_text(segments), speaker, CATEGORIES, req.date, article=article)[:MAX_CLAIMS]
-    futures = [_pool.submit(verify, c, req.date) for c in claims]
-    wait(futures, timeout=DEADLINE_S)
-    pending = {i for i, f in enumerate(futures) if not f.done()}
+    futures = [_submit(c, req.date) for c in claims]
+    wait([f for f in futures if f], timeout=DEADLINE_S)
+    for f in futures:
+        if f:
+            f.cancel()  # pas encore commencée : retirée de la file ; déjà en cours : continue (résultat gardé en mémoire)
+    pending = {i for i, f in enumerate(futures) if f is None or not f.done() or f.cancelled()}
     verifications = []
     for f in futures:
-        if not f.done():
+        if f is None:
+            verifications.append(Verification(verdict=Verdict.inverifiable, method=Method.aucun, confidence=0.0,
+                                              explanation=BUSY))
+        elif f.cancelled() or not f.done():
             verifications.append(Verification(verdict=Verdict.inverifiable, method=Method.aucun, confidence=0.0,
                                               explanation=PENDING))
         elif f.exception():
