@@ -244,6 +244,21 @@ def main() -> None:
     assert db.get_speech("yt:TEST")[1][0].verification.verdict == Verdict.vrai
     print("db : profil", p.reliability_score, p.verdicts)
 
+    # affirmation répétée : vérification par recherche stockée réutilisée (même chiffre, mots proches, dates proches)
+    from . import verify as verify_mod2
+    rep_sp = Speech(id="yt:REPEAT1", video_id="REPEAT1", url=None, title="t", date="2026-10-01", speaker=Speaker(name="Personne Répète", party=None))
+    db.save_speech(rep_sp, "[]")
+    told = claim(indicator=None, category="immigration", claim="Seuls 10 % des immigrés entrent légalement en France avec un contrat de travail.",
+                 quote="seuls 10 % des immigrés", value=10.0, unit=Unit.pourcent)
+    db.save_result(ClaimResult(id="yt:REPEAT1#0", speech_id="yt:REPEAT1", claim=told, verification=Verification(
+        verdict=Verdict.trompeur, method=Method.web, explanation="Selon le ministère…", confidence=0.6,
+        sources=[{"title": "DGEF", "url": "https://www.immigration.interieur.gouv.fr/", "publisher": "DGEF"}])), rep_sp.speaker)
+    again = told.model_copy(update={"claim": "Seulement 10 % des immigrés entrent légalement en France grâce à un contrat de travail."})
+    hit = verify_mod2.remembered(again, "2026-10-20")
+    assert hit and hit.verdict == Verdict.trompeur and "déjà vérifiée" in hit.explanation and "Personne Répète" in hit.explanation, hit
+    assert verify_mod2.remembered(again.model_copy(update={"value": 20.0}), "2026-10-20") is None  # autre chiffre
+    assert verify_mod2.remembered(again, "2027-06-01") is None  # discours trop éloigné dans le temps
+
     # POST /check (contrat Node) : LLM remplacé par des fonctions factices
     from . import check_api
     from .models import CheckRequest
@@ -310,13 +325,29 @@ def main() -> None:
     try:
         found = verify_mod.published_factchecks(claim(indicator=None, category="immigration",
                     claim="Seuls 10 % des immigrés entrent légalement en France grâce au travail.", quote="10 % des immigrés"))
-        assert [f["url"] for f in found] == ["https://a.fr/1"], found
+        assert found == [], found  # a.fr n'est pas une rédaction de fact-checking reconnue
+        verify_mod.open_data.factcheck_search = lambda q: {"fact_checks": [
+            {"affirmation": "Seuls 10 % des immigrés entrent légalement en France avec un travail " + "x" * 900, "titre": "Vérif",
+             "url": "https://www.tf1info.fr/politique/verif", "media": "TF1 Info", "verdict": "Plutôt faux"},
+            {"affirmation": "Seuls 10 % des immigrés entrent légalement en France avec un travail", "titre": "Vérif",
+             "url": "http://www.tf1info.fr/non-https", "media": "TF1 Info", "verdict": "Faux"}]}
+        found = verify_mod.published_factchecks(claim(indicator=None, category="immigration",
+                    claim="Seuls 10 % des immigrés entrent légalement en France grâce au travail.", quote="10 % des immigrés"))
+        assert [f["url"] for f in found] == ["https://www.tf1info.fr/politique/verif"] and len(found[0]["affirmation"]) <= 300, found
     finally:
         verify_mod.open_data.factcheck_search = real_fc
         if real_key is None:
             os.environ.pop("GOOGLE_FACTCHECK_API_KEY", None)
         else:
             os.environ["GOOGLE_FACTCHECK_API_KEY"] = real_key
+
+    # classement Full Fact : un vote passe avant une affirmation sans chiffre ni type
+    kinds = [claim(quote="a", indicator=None, category="autre"), claim(quote="b", indicator=None, category="autre", kind="vote")]
+    real_max, check_api.MAX_WEB = check_api.MAX_WEB, 1
+    try:
+        assert check_api.web_budget(kinds, None) == {1}
+    finally:
+        check_api.MAX_WEB = real_max
 
     # délai global : ce qui n'est pas prêt revient « en cours », hors du profil
     import time as _time

@@ -26,6 +26,9 @@ Pour chaque affirmation :
 - `period_start` / `period_end` : au format `AAAA`, `AAAA-Tn` ou `AAAA-MM` (un mois précis, ex. l'inflation de septembre 2026 → "2026-09"). « Depuis 2017 » → period_start "2017", period_end null. « Aujourd'hui », « actuellement », « en ce moment » ou un verbe au présent → period_start **et** period_end null (= dernier chiffre publié), jamais l'année en cours. Déduis l'année à partir de la date du discours si elle est donnée ;
 - `geo` : "France" par défaut.
 
+- `kind` : le type d'affirmation (classement de Full Fact) : `chiffre` (une quantité, un taux, une évolution), `regle` (ce que dit ou permet une loi), `vote` (ce qu'un élu ou un groupe a voté), `cause` (« X a provoqué Y », « grâce à », « à cause de »), `prediction`, `personnel` (la vie ou le parcours de l'orateur), `autre`. Une `prediction` ou un fait `personnel` n'est pas vérifiable par nos sources : `checkable` = false ;
+- une phrase qui contient **plusieurs faits vérifiables** donne **une affirmation par fait**, chacune avec son chiffre et sa période : « le Smic a augmenté de 17 % depuis 2021 alors que les prix ont pris 15 % » → deux affirmations (même `quote`).
+
 Si l'orateur répète la même affirmation, ne la garde qu'une fois (la première occurrence).
 Si aucune affirmation vérifiable n'est présente, renvoie une liste vide.
 

@@ -44,6 +44,14 @@ Inspiré de Full Fact, Squash (Duke Reporters' Lab) et Chequeabot : pour chaque 
 
 Les recherches par le modèle sont limitées à 6 par analyse (`CHECK_MAX_WEB`), les affirmations chiffrées d'abord puis par thème (finances publiques, économie, emploi, immigration, sécurité…). Les affirmations couvertes par les séries officielles ne sont jamais limitées. Les autres reviennent « non vérifiée », avec la raison.
 
+## Affirmations répétées
+
+Comme les alertes de Full Fact : une affirmation hors séries officielles déjà vérifiée par recherche dans les 30 derniers jours est réutilisée telle quelle (« Affirmation déjà vérifiée le … (dite par …) »), si elle a le même thème, le même chiffre, la même période, au moins 60 % de mots communs, et si les deux discours ont moins de 90 jours d'écart.
+
+## Types d'affirmations
+
+Classement repris de Full Fact : chiffre, règle (loi), vote, cause, prédiction, personnel. Les prédictions et les faits personnels ne sont pas vérifiés. Une affirmation de cause à effet n'est tranchée que si une évaluation officielle l'établit ; sinon elle est invérifiable.
+
 ## Articles de presse
 
 Sur un article, on vérifie aussi les faits avancés par le texte lui-même et par chaque personne citée. L'explication commence par « Affirmé par l'article » ou « Affirmé par <nom> ». Seules les affirmations de la personnalité indiquée entrent dans son profil de fiabilité.

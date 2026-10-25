@@ -84,6 +84,10 @@ class ExtractedClaim(BaseModel):
     period_start: Optional[str] = Field(description="Début de période, format AAAA, AAAA-Tn ou AAAA-MM, ou null")
     period_end: Optional[str] = Field(description="Fin de période, format AAAA, AAAA-Tn ou AAAA-MM, ou null (= aujourd'hui)")
     geo: str = Field(description="Périmètre géographique, 'France' par défaut")
+    kind: Optional[Literal["chiffre", "regle", "vote", "cause", "prediction", "personnel", "autre"]] = Field(
+        default=None,
+        description="Type d'affirmation (classement de Full Fact) : chiffre, regle (ce que dit une loi), vote (ce qu'un élu "
+                    "ou un groupe a voté), cause (« X a provoqué Y »), prediction, personnel (vie ou parcours de l'orateur), autre")
     author: Optional[str] = Field(
         default=None,
         description="Article seulement : nom de la personne qui avance l'affirmation, ou 'article' pour un fait affirmé "

@@ -22,7 +22,8 @@ def extract_claims(transcript_text: str, speaker: str, categories: list[Category
     )
     result = llm.parse(system, user, ExtractionResult, effort="medium", extraction=True)
     wanted = {c.value for c in categories}
-    claims = [c for c in result.claims if c.checkable and c.category.value in wanted]
+    claims = [c for c in result.claims if c.checkable and c.category.value in wanted
+              and c.kind not in ("prediction", "personnel")]
     for c in claims:
         if article:
             c.timestamp_start = None

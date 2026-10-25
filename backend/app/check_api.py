@@ -21,7 +21,7 @@ from .models import (Category, CheckClaim, CheckRequest, CheckResponse, ClaimRes
                      Method, Speech, TranscriptSegment, Verdict, Verification)
 from .transcript import to_prompt_text, video_id_from_url
 from . import referentiel
-from .verify import cached, verify
+from .verify import cached, remembered, verify
 
 MAX_CLAIMS = int(os.getenv("CHECK_MAX_CLAIMS", "15"))
 # Au-delà, on répond avec ce qui est prêt : les recherches continuent et leurs résultats, gardés en mémoire (verify.py),
@@ -34,6 +34,7 @@ PENDING = ("Vérification encore en cours au moment de répondre (recherche dans
 MAX_WEB = int(os.getenv("CHECK_MAX_WEB", "6"))
 OVER_BUDGET = (f"Non vérifiée : chaque analyse est limitée à {MAX_WEB} recherches dans les sources hors séries officielles, "
                "réservées aux affirmations chiffrées et aux thèmes de l'élection.")
+KIND_RANK = {"chiffre": 0, "vote": 1, "regle": 2, "cause": 3, "autre": 4}  # ce que nos sources tranchent le mieux d'abord
 PRIORITY = ["finances_publiques", "economie", "emploi", "immigration", "securite", "sante", "education", "energie_climat"]
 BUSY = "Serveur très sollicité : cette affirmation n'a pas pu être vérifiée maintenant. Relancez l'analyse un peu plus tard."
 _pool = ThreadPoolExecutor(max_workers=int(os.getenv("CHECK_WORKERS", "6")))
@@ -112,9 +113,10 @@ def to_contract(claim_id: str, claim: ExtractedClaim, v: Verification, with_star
 
 def web_budget(claims: list[ExtractedClaim], date: str | None) -> set[int]:
     """Indices des affirmations qui ont droit à une recherche par le modèle : chiffrées d'abord, puis par thème."""
-    needs = [i for i, c in enumerate(claims) if referentiel.check(c, date) is None and cached(c, date) is None]
-    rank = lambda i: (claims[i].value is None, PRIORITY.index(claims[i].category.value)
-                      if claims[i].category.value in PRIORITY else len(PRIORITY), i)
+    needs = [i for i, c in enumerate(claims)
+             if referentiel.check(c, date) is None and cached(c, date) is None and remembered(c, date) is None]
+    rank = lambda i: (claims[i].value is None, KIND_RANK.get(claims[i].kind or "autre", len(KIND_RANK)),
+                      PRIORITY.index(claims[i].category.value) if claims[i].category.value in PRIORITY else len(PRIORITY), i)
     return set(sorted(needs, key=rank)[:MAX_WEB])
 
 

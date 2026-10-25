@@ -115,6 +115,19 @@ def save_result(r: ClaimResult, speaker: Speaker) -> None:
                   (r.id, v.verdict.value, v.method.value, v.official_value, v.official_period, v.confidence, v.model_dump_json()))
 
 
+def recent_web_checks(category: str, since: str, limit: int = 300) -> list[dict]:
+    """Vérifications par recherche (hors séries officielles) récentes d'un thème, pour réutiliser une affirmation répétée."""
+    with connect() as c:
+        rows = c.execute(
+            "SELECT c.data AS cdata, v.data AS vdata, v.checked_at, s.date AS speech_date, p.name FROM claims c "
+            "JOIN verifications v ON v.claim_id=c.id JOIN speeches s ON s.id=c.speech_id "
+            "JOIN politicians p ON p.id=c.politician_id "
+            "WHERE v.method='web' AND v.verdict<>'inverifiable' AND c.category=? AND v.checked_at>=? "
+            "ORDER BY v.checked_at DESC LIMIT ?", (category, since, limit)).fetchall()
+    return [{"claim": ExtractedClaim.model_validate_json(r["cdata"]), "verification": Verification.model_validate_json(r["vdata"]),
+             "checked_at": str(r["checked_at"])[:10], "speech_date": r["speech_date"], "speaker": r["name"]} for r in rows]
+
+
 def get_speech(speech_id: str) -> tuple[Speech, list[ClaimResult]] | None:
     with connect() as c:
         s = c.execute("SELECT s.*, p.name, p.party FROM speeches s JOIN politicians p ON p.id=s.politician_id WHERE s.id=?",
