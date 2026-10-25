@@ -20,7 +20,8 @@ from .extract import extract_claims
 from .models import (Category, CheckClaim, CheckRequest, CheckResponse, ClaimResult, Evidence, ExtractedClaim,
                      Method, Speech, TranscriptSegment, Verdict, Verification)
 from .transcript import to_prompt_text, video_id_from_url
-from .verify import verify
+from . import referentiel
+from .verify import cached, verify
 
 MAX_CLAIMS = int(os.getenv("CHECK_MAX_CLAIMS", "15"))
 # Au-delà, on répond avec ce qui est prêt : les recherches continuent et leurs résultats, gardés en mémoire (verify.py),
@@ -28,6 +29,12 @@ MAX_CLAIMS = int(os.getenv("CHECK_MAX_CLAIMS", "15"))
 DEADLINE_S = float(os.getenv("CHECK_DEADLINE_S", "240"))
 PENDING = ("Vérification encore en cours au moment de répondre (recherche dans les sources officielles) : "
            "relancez l'analyse dans quelques minutes pour obtenir le verdict.")
+# Recherches par le modèle (hors séries officielles) limitées par analyse, les plus utiles d'abord (comme le tri par
+# intérêt de Full Fact ou de Loki) : c'est le quota gratuit de Gemini qui décide de la capacité du service.
+MAX_WEB = int(os.getenv("CHECK_MAX_WEB", "6"))
+OVER_BUDGET = (f"Non vérifiée : chaque analyse est limitée à {MAX_WEB} recherches dans les sources hors séries officielles, "
+               "réservées aux affirmations chiffrées et aux thèmes de l'élection.")
+PRIORITY = ["finances_publiques", "economie", "emploi", "immigration", "securite", "sante", "education", "energie_climat"]
 BUSY = "Serveur très sollicité : cette affirmation n'a pas pu être vérifiée maintenant. Relancez l'analyse un peu plus tard."
 _pool = ThreadPoolExecutor(max_workers=int(os.getenv("CHECK_WORKERS", "6")))
 # File partagée entre toutes les requêtes : bornée, pour qu'une longue vidéo ne retarde pas indéfiniment les autres.
@@ -36,11 +43,11 @@ _backlog = threading.BoundedSemaphore(MAX_BACKLOG)
 log = logging.getLogger(__name__)
 
 
-def _submit(claim, date):
+def _submit(claim, date, use_web=True):
     """Place une vérification dans la file partagée, ou None si elle est pleine."""
     if not _backlog.acquire(blocking=False):
         return None
-    future = _pool.submit(verify, claim, date)
+    future = _pool.submit(verify, claim, date, use_web)
     future.add_done_callback(lambda _: _backlog.release())  # aussi appelé si la tâche est annulée
     return future
 # Tous les thèmes : le référentiel couvre l'emploi, le reste part en recherche web.
@@ -103,6 +110,14 @@ def to_contract(claim_id: str, claim: ExtractedClaim, v: Verification, with_star
     )
 
 
+def web_budget(claims: list[ExtractedClaim], date: str | None) -> set[int]:
+    """Indices des affirmations qui ont droit à une recherche par le modèle : chiffrées d'abord, puis par thème."""
+    needs = [i for i, c in enumerate(claims) if referentiel.check(c, date) is None and cached(c, date) is None]
+    rank = lambda i: (claims[i].value is None, PRIORITY.index(claims[i].category.value)
+                      if claims[i].category.value in PRIORITY else len(PRIORITY), i)
+    return set(sorted(needs, key=rank)[:MAX_WEB])
+
+
 def check(req: CheckRequest) -> CheckResponse:
     with_start = any(s.start is not None for s in req.segments)
     segments = [TranscriptSegment(start=s.start or 0.0, text=s.text) for s in req.segments if s.text.strip()]
@@ -110,7 +125,8 @@ def check(req: CheckRequest) -> CheckResponse:
 
     article = req.source.kind == "article"
     claims = extract_claims(to_prompt_text(segments), speaker, CATEGORIES, req.date, article=article)[:MAX_CLAIMS]
-    futures = [_submit(c, req.date) for c in claims]
+    allowed = web_budget(claims, req.date)
+    futures = [_submit(c, req.date, i in allowed) for i, c in enumerate(claims)]
     wait([f for f in futures if f], timeout=DEADLINE_S)
     for f in futures:
         if f:
@@ -130,6 +146,9 @@ def check(req: CheckRequest) -> CheckResponse:
                                               explanation="La vérification de cette affirmation a échoué."))
         else:
             verifications.append(f.result())
+    for i, v in enumerate(verifications):
+        if i not in allowed and i not in pending and v.method == Method.aucun:
+            verifications[i] = v.model_copy(update={"explanation": OVER_BUDGET})
     if pending:
         log.warning("%d vérification(s) encore en cours après %.0f s", len(pending), DEADLINE_S)
 

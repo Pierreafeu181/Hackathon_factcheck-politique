@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import re
 import threading
 import time
@@ -16,7 +17,7 @@ import unicodedata
 from collections import OrderedDict
 from urllib.parse import urlparse
 
-from . import llm, referentiel
+from . import llm, open_data, referentiel
 from .models import ClaimType, ExtractedClaim, Method, Unit, Verdict, Verification, WebVerification
 
 log = logging.getLogger(__name__)
@@ -67,17 +68,55 @@ def rate_verdict(claim: ExtractedClaim, official: float | None) -> tuple[Verdict
     return verdict, gap
 
 
+def cached(claim: ExtractedClaim, speech_date: str | None) -> Verification | None:
+    """Vérification web déjà faite pour cette affirmation (mémoire 24 h), sans rien relancer."""
+    with _web_cache_lock:
+        hit = _web_cache.get(cache_key(claim, speech_date))
+    return hit[1].model_copy(deep=True) if hit and time.time() - hit[0] < WEB_CACHE_TTL else None
+
+
+# Rapprochement systématique avec les fact-checks déjà publiés (comme Full Fact, Squash ou Chequeabot) : gratuit pour le
+# quota Gemini. Sans éditeur humain pour valider la correspondance, le fact-check ne décide jamais seul : il est donné au
+# modèle, qui juge s'il porte bien sur la même affirmation.
+FACTCHECK_MIN_OVERLAP = 0.3
+_STOP = {"selon", "depuis", "cette", "entre", "leurs", "notre", "votre", "avoir",
+         "etait", "sont", "plus", "moins", "tous", "toutes", "dans", "pour", "avec", "sans", "elle", "ils"}
+
+
+def _stems(text: str) -> set[str]:
+    return {w[:5] for w in re.findall(r"[a-z0-9]+", open_data._norm(text)) if len(w) > 3 and w not in _STOP}
+
+
+def published_factchecks(claim: ExtractedClaim, limit: int = 3) -> list[dict]:
+    """Fact-checks publiés (Google Fact Check) dont l'affirmation recoupe celle-ci, du plus proche au moins proche."""
+    if not os.getenv("GOOGLE_FACTCHECK_API_KEY"):
+        return []
+    try:
+        found = open_data.factcheck_search(claim.claim[:200]).get("fact_checks", [])
+    except Exception as e:  # service tiers : jamais bloquant
+        log.info("Google Fact Check indisponible : %s", e)
+        return []
+    mine = _stems(f"{claim.claim} {claim.quote}")
+    scored = []
+    for fc in found:
+        theirs = _stems(f"{fc.get('affirmation') or ''} {fc.get('titre') or ''}")
+        overlap = len(mine & theirs) / max(len(mine), 1)
+        if fc.get("url") and overlap >= FACTCHECK_MIN_OVERLAP:
+            scored.append((overlap, fc))
+    return [fc for _, fc in sorted(scored, key=lambda x: -x[0])[:limit]]
+
+
 def verify(claim: ExtractedClaim, speech_date: str | None = None, use_web: bool = True) -> Verification:
     result = referentiel.check(claim, speech_date)
     if result is not None:
         return _from_referentiel(claim, result)
+    key = cache_key(claim, speech_date)
+    with _web_cache_lock:  # déjà vérifiée (mémoire 24 h) : gratuit, même hors budget de recherche
+        hit = _web_cache.get(key)
+        if hit and time.time() - hit[0] < WEB_CACHE_TTL:
+            _web_cache.move_to_end(key)
+            return hit[1].model_copy(deep=True)
     if use_web:
-        key = cache_key(claim, speech_date)
-        with _web_cache_lock:
-            hit = _web_cache.get(key)
-            if hit and time.time() - hit[0] < WEB_CACHE_TTL:
-                _web_cache.move_to_end(key)
-                return hit[1].model_copy(deep=True)
         try:
             result = _from_web(claim, speech_date)
         except Exception as e:  # la démo ne doit pas planter sur une affirmation
@@ -108,7 +147,15 @@ def _from_referentiel(claim: ExtractedClaim, r: referentiel.CheckResult) -> Veri
 def _from_web(claim: ExtractedClaim, speech_date: str | None) -> Verification:
     user = (f"Affirmation : {claim.claim}\nCitation : « {claim.quote} »\n"
             f"Date du discours : {speech_date or 'inconnue'}")
+    published = published_factchecks(claim)
+    if published:
+        user += ("\n\nFact-checks déjà publiés par des rédactions, trouvés automatiquement : ne t'en sers que s'ils portent "
+                 "bien sur la même affirmation (même chiffre, même sujet, même période), et cite alors leur URL.\n"
+                 + "\n".join(f"- {fc.get('media')} ({fc.get('date') or 'date inconnue'}) : « {fc.get('affirmation')} » → "
+                              f"{fc.get('verdict')}. {fc.get('titre') or ''} {fc['url']}" for fc in published))
     findings, seen = llm.web_research(llm.prompt("verify_web"), user)
+    seen = seen + [{"title": f"{fc.get('media')} – {fc.get('titre') or fc.get('affirmation')}", "url": fc["url"]}
+                   for fc in published]
     structured = llm.parse(
         "Convertis ce compte rendu de vérification en JSON conforme au schéma. N'invente aucune source : "
         "garde uniquement les URL présentes dans le texte.",

@@ -38,6 +38,12 @@ Hors référentiel (recherche par le modèle), le même barème est demandé dan
 
 Si le chiffre avancé est faux pour l'indicateur cité mais juste pour un indicateur voisin (taux d'activité / taux d'emploi, chômage BIT / demandeurs d'emploi, Smic brut / net, premières demandes d'asile / total…), le verdict est **imprécis**, pas faux, et l'explication cite les deux séries (`SIBLINGS` dans `referentiel.py`).
 
+## Fact-checks déjà publiés et budget de recherche
+
+Inspiré de Full Fact, Squash (Duke Reporters' Lab) et Chequeabot : pour chaque affirmation hors séries officielles, on cherche d'abord les fact-checks déjà publiés (Google Fact Check, format ClaimReview) et on garde ceux qui partagent au moins 30 % des mots de l'affirmation. Faute d'éditeur humain pour valider la correspondance, un fact-check publié ne décide jamais seul : il est donné au modèle, qui ne s'en sert que s'il porte sur la même affirmation, et devient alors une source citée.
+
+Les recherches par le modèle sont limitées à 6 par analyse (`CHECK_MAX_WEB`), les affirmations chiffrées d'abord puis par thème (finances publiques, économie, emploi, immigration, sécurité…). Les affirmations couvertes par les séries officielles ne sont jamais limitées. Les autres reviennent « non vérifiée », avec la raison.
+
 ## Articles de presse
 
 Sur un article, on vérifie aussi les faits avancés par le texte lui-même et par chaque personne citée. L'explication commence par « Affirmé par l'article » ou « Affirmé par <nom> ». Seules les affirmations de la personnalité indiquée entrent dans son profil de fiabilité.

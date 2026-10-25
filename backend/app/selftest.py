@@ -282,6 +282,42 @@ def main() -> None:
     assert db.profile("personne-article").n_claims == 1  # seule sa propre affirmation compte
     print("/check article : 3 affirmations, 1 dans le profil")
 
+    # budget de recherches : les affirmations chiffrées d'abord, le reste « non vérifiée », le référentiel toujours
+    many = [claim(quote=f"web {i}", indicator=None, value=(None if i % 2 else float(i)), category="autre") for i in range(5)]
+    many.append(claim(quote="référentiel", value=last_v, unit=Unit.pourcent))
+    real_max, check_api.MAX_WEB = check_api.MAX_WEB, 2
+    try:
+        assert check_api.web_budget(many, None) == {0, 2}  # chiffrées d'abord, dans l'ordre
+    finally:
+        check_api.MAX_WEB = real_max
+    fake_cache = verify_mod._web_cache
+    k = verify_mod.cache_key(many[1], None)
+    fake_cache[k] = (__import__("time").time(), Verification(verdict=Verdict.faux, method=Method.web,
+                     explanation="déjà vu", confidence=0.7, sources=[{"title": "INSEE", "url": "https://www.insee.fr/", "publisher": "INSEE"}]))
+    try:
+        assert verify_mod.verify(many[1], None, use_web=False).explanation == "déjà vu"  # la mémoire sert même hors budget
+        assert 1 not in check_api.web_budget(many, None)
+    finally:
+        fake_cache.clear()
+
+    # fact-checks publiés : rapprochement par mots communs, jamais sans clé
+    real_fc, real_key = verify_mod.open_data.factcheck_search, os.environ.get("GOOGLE_FACTCHECK_API_KEY")
+    os.environ["GOOGLE_FACTCHECK_API_KEY"] = "test"
+    verify_mod.open_data.factcheck_search = lambda q: {"fact_checks": [
+        {"affirmation": "Seuls 10 % des immigrés entrent légalement en France avec un travail", "titre": "Vérif", "url": "https://a.fr/1",
+         "media": "TF1 Info", "verdict": "Plutôt faux", "date": "2024-05-01"},
+        {"affirmation": "Le prix du gazole a doublé", "titre": "Carburants", "url": "https://a.fr/2", "media": "AFP", "verdict": "Faux"}]}
+    try:
+        found = verify_mod.published_factchecks(claim(indicator=None, category="immigration",
+                    claim="Seuls 10 % des immigrés entrent légalement en France grâce au travail.", quote="10 % des immigrés"))
+        assert [f["url"] for f in found] == ["https://a.fr/1"], found
+    finally:
+        verify_mod.open_data.factcheck_search = real_fc
+        if real_key is None:
+            os.environ.pop("GOOGLE_FACTCHECK_API_KEY", None)
+        else:
+            os.environ["GOOGLE_FACTCHECK_API_KEY"] = real_key
+
     # délai global : ce qui n'est pas prêt revient « en cours », hors du profil
     import time as _time
     slow = [claim(quote="rapide", value=last_v, unit=Unit.pourcent), claim(quote="lente", indicator=None, value=1.0)]

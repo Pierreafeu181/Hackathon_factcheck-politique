@@ -137,6 +137,7 @@ python scripts/fetch_insee.py
 - [x] Référentiel immigration (demandes d'asile, premiers titres de séjour : Eurostat, identiques à la DGEF) et sécurité (10 indicateurs SSMSI sur data.gouv, identiques au bilan 2025) : 40 séries — Lot C
 - [x] Option `GEMINI_EXTRACT_MODEL` (ex. gemini-3.8-flash) pour l'extraction, désactivée par défaut : 242 s par affirmation au benchmark contre 3 s, réservée à la pré-analyse de la démo ; confusions d'indicateurs voisins → imprécis en code ; garde-fou objectifs élargi (Sénat, loi de finances…) — Lots B/C
 - [x] Longues vidéos : le serveur Node attend le moteur jusqu'à 15 min (fetch coupait à 5 min → 502) ; le moteur répond au plus tard après 4 min de vérifications (`CHECK_DEADLINE_S`), le reste revient « en cours » et sert à la relance (mémoire 24 h) — Lots A/C
+- [x] Repris de Full Fact / Squash / Chequeabot / Loki : rapprochement systématique avec les fact-checks publiés (donnés au modèle, jamais décisifs seuls) et budget de 6 recherches par analyse, affirmations chiffrées d'abord — Lot C
 - [ ] Extension 1.0.1 (date de publication) à envoyer sur le Chrome Web Store : `store/verifpol-1.0.1.zip`
 - [ ] Banque de France (clé du portail développeur) et OCDE (API refusée, 403)
 - [x] Pipeline complet testé sur Gemini 3.5 Flash-Lite (gratuit) : benchmark 10/10 (Claude seul 3/10, Gemini seul 6/10), vidéo réelle en 14 s, chat avec les votes de l'Assemblée. `gemini-3.8-flash` n'a que 20 requêtes/jour en gratuit : il sert de secours
