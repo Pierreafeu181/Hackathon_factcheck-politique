@@ -51,9 +51,10 @@ class CheckResult:
     verdict: Verdict
     official_value: float | None
     official_period: str | None
-    facts: str                      # constat factuel en français, donné au LLM pour rédiger
+    explanation: str                # explication affichée telle quelle (aucun LLM : le texte suit le calcul)
     sources: list[Source] = field(default_factory=list)
     confidence: float = 0.9
+    correction: str | None = None   # formulation juste, None si le verdict est vrai
 
 
 # ---------------------------------------------------------------- chargement
@@ -144,6 +145,76 @@ def _before(s: Series, period: str) -> tuple[float, str] | None:
     return (before[-1][1], before[-1][0]) if before else None
 
 
+# ---------------------------------------------------------------- rédaction (français, sans LLM)
+
+MONTHS = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre",
+          "novembre", "décembre"]
+UNIT_SUFFIXES = (" (milliers)", " (milliards d'euros)", " (euros)")
+
+
+def _num(v: float, decimals: int = 2) -> str:
+    """8.3 → « 8,3 », 3595.5 → « 3 595,5 » (espace fine insécable entre les milliers)."""
+    text = f"{abs(v):,.{decimals}f}".replace(",", "\u202f").replace(".", ",")
+    if "," in text:
+        text = text.rstrip("0").rstrip(",")
+    return ("−" if v < 0 else "") + text
+
+
+def _value(v: float, s: Series) -> str:
+    if s.is_rate:
+        return f"{_num(v)} %"
+    if s.unit == "milliers":
+        return f"{_num(v / 1000)} million{'s' if abs(v) >= 2000 else ''}" if abs(v) >= 1000 else f"{_num(v * 1000, 0)}"
+    if s.unit == "milliards":
+        return f"{_num(v, 1)} milliards d'euros"
+    if s.unit == "euros":
+        return f"{_num(v)} €"
+    return _num(v)
+
+
+def _period(p: str) -> str:
+    """« 2026-Q2 » → « au 2e trimestre 2026 », « 2026-09 » → « en septembre 2026 », « moyenne 2017 » → « en moyenne en 2017 »."""
+    if p.startswith("moyenne "):
+        return "en moyenne " + _period(p[8:])
+    if m := _Q.match(p):
+        n = int(m[2])
+        return f"au {'1er' if n == 1 else f'{n}e'} trimestre {m[1]}"
+    if m := _M.match(p):
+        return f"en {MONTHS[int(m[2]) - 1]} {m[1]}"
+    return f"en {p}"
+
+
+def _since(p: str) -> str:
+    """« 2026-Q1 » → « depuis le 1er trimestre 2026 », « 2017 » → « depuis 2017 »."""
+    text = _period(p)
+    return "depuis le " + text[3:] if text.startswith("au ") else "depuis " + text[3:]
+
+
+def _publisher(s: Series) -> str:
+    if s.publisher.startswith("INSEE"):
+        return "l'INSEE"
+    if s.publisher.startswith("DARES"):
+        return "la DARES"
+    return s.publisher
+
+
+def _label(s: Series) -> str:
+    label = s.label
+    for suffix in UNIT_SUFFIXES:
+        label = label.removesuffix(suffix)
+    return label
+
+
+def _inline(s: Series) -> str:
+    """Libellé en milieu de phrase : minuscule initiale, sauf nom propre (Smic)."""
+    label = _label(s)
+    return label if label.startswith("Smic") else label[0].lower() + label[1:]
+
+
+def _points(v: float) -> str:
+    return f"{_num(v, 1)} point{'s' if abs(v) >= 2 else ''}"
+
+
 # ---------------------------------------------------------------- comparaison
 
 
@@ -194,18 +265,30 @@ def _check_level(c: ExtractedClaim, s: Series) -> CheckResult | None:
     if got is None:
         return None
     official, period = got
-    said = BOUND_LABEL[c.bound]
+    said = BOUND_LABEL[c.bound] + _value(c.value, s)
     if s.is_rate:
         diff = _gap(c.value, official, c.bound)
         verdict = _grade(diff, RATE_TOL)
-        facts = f"Affirmé : {said}{c.value} %. Officiel ({period}) : {official} %. Écart : {diff:.2f} point."
+        gap = _points(diff)
     else:
         diff = _gap(c.value, official, c.bound) / abs(official)
         verdict = _grade(diff, VOLUME_TOL)
-        facts = f"Affirmé : {said}{c.value} {s.unit}. Officiel ({period}) : {official} {s.unit}. Écart relatif : {diff:.1%}."
-    if c.bound and diff > 0 and verdict in (Verdict.vrai, Verdict.plutot_vrai):
+        gap = f"{_num(diff * 100, 1)} %"
+    crossed = bool(c.bound) and diff > 0
+    if crossed and verdict in (Verdict.vrai, Verdict.plutot_vrai):
         verdict = Verdict.imprecis  # « moins de 8 % » alors que c'est 8,3 % : seuil franchi, jamais « vrai »
-    return CheckResult(verdict, official, period, facts, [s.source(period)])
+    official_text = f"{_value(official, s)} {_period(period)}"
+    text = f"Selon {_publisher(s)}, {_inline(s)} : {official_text}. "
+    if verdict == Verdict.vrai:
+        text += f"Le seuil annoncé ({said}) est bien respecté." if c.bound else f"Le chiffre avancé ({said}) correspond à la donnée officielle."
+    elif verdict == Verdict.plutot_vrai:
+        text += f"Le chiffre avancé ({said}) en est proche, à {gap} près."
+    elif crossed:
+        text += f"Le seuil annoncé ({said}) n'est pas respecté : écart de {gap}."
+    else:
+        text += f"Le chiffre avancé ({said}) s'en écarte de {gap}."
+    correction = None if verdict == Verdict.vrai else f"{_label(s)} : {official_text}."
+    return CheckResult(verdict, official, period, text, [s.source(period)], correction=correction)
 
 
 def _check_evolution(c: ExtractedClaim, s: Series) -> CheckResult | None:
@@ -218,33 +301,48 @@ def _check_evolution(c: ExtractedClaim, s: Series) -> CheckResult | None:
     delta = vb - va
     official_dir = "hausse" if delta > 0 else "baisse" if delta < 0 else "stable"
     rel = delta / abs(va) * 100 if va else 0.0
-    facts = (f"{s.label} : {va} ({pa}) → {vb} ({pb}), soit {delta:+.2f} "
-             f"{'point' if s.is_rate else s.unit} ({rel:+.1f} %).")
+    sign = "+" if delta > 0 else "−" if delta < 0 else ""
+    change = f"{sign}{_points(abs(delta)) if s.is_rate else _value(abs(delta), s)} ({sign}{_num(abs(rel), 1)} %)"
+    path = f"de {_value(va, s)} {_period(pa)} à {_value(vb, s)} {_period(pb)}, soit {change}"
+    text = f"Selon {_publisher(s)}, {_inline(s)} : {path}. "
+    correction = f"{_label(s)} : {path}."
     srcs = [s.source(f"{pa} → {pb}")]
+    period = f"{pa} → {pb}"
 
     if c.direction and c.direction != official_dir and official_dir != "stable":
-        return CheckResult(Verdict.faux, round(delta, 2), f"{pa} → {pb}", facts + f" Sens affirmé : {c.direction}.", srcs)
+        return CheckResult(Verdict.faux, round(delta, 2), period,
+                           text + f"L'affirmation annonce une {c.direction}, alors que la série est en {official_dir}.",
+                           srcs, correction=correction)
     if c.value is None:
-        return CheckResult(Verdict.plutot_vrai, round(delta, 2), f"{pa} → {pb}",
-                           facts + " Le sens est correct, l'ampleur n'est pas chiffrée.", srcs, 0.7)
+        return CheckResult(Verdict.plutot_vrai, round(delta, 2), period,
+                           text + "Le sens de l'évolution est juste ; son ampleur n'est pas chiffrée.", srcs, 0.7,
+                           correction=correction)
 
-    claimed = abs(c.value)
+    claimed, bound = abs(c.value), BOUND_LABEL[c.bound]
+    note = ""
     if c.unit == Unit.pourcent_variation or (not s.is_rate and c.unit == Unit.pourcent):
         official_mag = abs(rel)
         verdict = _grade(_gap(claimed, official_mag, c.bound) / max(official_mag, 1e-9), VOLUME_TOL, Verdict.trompeur)
-        facts += f" Affirmé : {BOUND_LABEL[c.bound]}{claimed} % de variation."
+        said, official_said = f"{bound}{_num(claimed, 1)} %", f"{_num(official_mag, 1)} %"
     elif not s.is_rate:
         # « 2 millions d'emplois créés », « 1 000 milliards de dette en plus » : écart absolu, dans l'unité de la série
         official_mag = abs(delta)
         verdict = _grade(_gap(claimed, official_mag, c.bound) / max(official_mag, 1e-9), VOLUME_TOL, Verdict.trompeur)
-        facts += f" Affirmé : {BOUND_LABEL[c.bound]}{claimed} {s.unit} de variation."
+        said, official_said = f"{bound}{_value(claimed, s)}", _value(official_mag, s)
     else:
         official_mag = abs(delta)
         verdict = _grade(_gap(claimed, official_mag, c.bound), RATE_TOL, Verdict.trompeur)
-        facts += f" Affirmé : {BOUND_LABEL[c.bound]}{claimed} point(s)."
+        said, official_said = f"{bound}{_points(claimed)}", _points(official_mag)
         if c.unit == Unit.pourcent:
-            facts += " Attention : l'orateur dit « % » pour un écart de taux (ce sont des points)."
-    return CheckResult(verdict, round(delta, 2), f"{pa} → {pb}", facts, srcs)
+            note = " Un écart entre deux taux se mesure en points, pas en pourcentage."
+    if verdict == Verdict.vrai:
+        text += f"L'ampleur annoncée ({said}) correspond à l'évolution officielle."
+    elif verdict == Verdict.plutot_vrai:
+        text += f"L'ampleur annoncée ({said}) est proche de l'évolution officielle ({official_said})."
+    else:
+        text += f"L'ampleur annoncée ({said}) ne correspond pas à l'évolution officielle ({official_said})."
+    return CheckResult(verdict, round(delta, 2), period, text + note, srcs,
+                       correction=None if verdict == Verdict.vrai else correction)
 
 
 def _check_record(c: ExtractedClaim, s: Series) -> CheckResult | None:
@@ -267,27 +365,40 @@ def _check_record(c: ExtractedClaim, s: Series) -> CheckResult | None:
     else:
         return None
 
+    level = "bas" if lowest else "haut"
+
     def grade(idx: int) -> tuple[Verdict, str]:
         actual, p_prev = years_since_comparable(idx)
         p_ref, v_ref = s.obs[idx]
-        where = f"il faut remonter à {p_prev} pour trouver un niveau aussi {'bas' if lowest else 'haut'}" if p_prev \
-            else f"c'est un record depuis le début de la série ({s.obs[0][0]})"
-        facts = f"{s.label} = {v_ref} en {p_ref} ; {where} (≈ {actual:.1f} ans). Affirmé : ≈ {claimed_years:.0f} ans."
+        years = "moins d'un an" if actual < 1 else f"environ {round(actual)} an{'s' if round(actual) >= 2 else ''}"
+        where = (f"il faut remonter {_period(p_prev)} pour trouver un niveau aussi {level}, soit {years}" if p_prev
+                 else f"c'est le niveau le plus {level} depuis le début de la série ({_period(s.obs[0][0])[3:]})")
+        text = (f"Selon {_publisher(s)}, {_inline(s)} : {_value(v_ref, s)} {_period(p_ref)} ; "
+                f"{where}. L'affirmation parle d'environ {round(claimed_years)} ans.")
         if claimed_years <= actual + 1:
-            return Verdict.vrai, facts
+            return Verdict.vrai, text
         if claimed_years <= actual * 1.5:
-            return Verdict.imprecis, facts
-        return Verdict.faux, facts
+            return Verdict.imprecis, text
+        return Verdict.faux, text
 
-    verdict, facts = grade(len(s.obs) - 1)
+    def fix(idx: int) -> str:
+        actual, p_prev = years_since_comparable(idx)
+        p_ref, v_ref = s.obs[idx]
+        since = _since(p_prev) if p_prev else "depuis le début de la série"
+        return f"{_label(s)} : {_value(v_ref, s)} {_period(p_ref)}, niveau le plus {level} {since}."
+
+    last = len(s.obs) - 1
+    verdict, text = grade(last)
     if verdict == Verdict.faux:
         # C'était peut-être vrai récemment (ex. le chômage est remonté depuis) : on cherche sur 2 ans.
-        recent = range(max(0, len(s.obs) - 9), len(s.obs) - 1)
+        recent = range(max(0, len(s.obs) - 9), last)
         for i in sorted(recent, key=lambda i: s.obs[i][1], reverse=not lowest):
-            v2, f2 = grade(i)
+            v2, t2 = grade(i)
             if v2 == Verdict.vrai:
                 return CheckResult(Verdict.imprecis, s.obs[i][1], s.obs[i][0],
-                                   f"Vrai en {s.obs[i][0]} mais plus au dernier point. {f2} Dernier point : {s.obs[-1][0]} = {s.obs[-1][1]}.",
-                                   [s.source()], 0.8)
+                                   f"{t2} C'était vrai {_period(s.obs[i][0])}, mais plus au dernier point publié "
+                                   f"({_value(s.obs[-1][1], s)} {_period(s.obs[-1][0])}).",
+                                   [s.source()], 0.8, correction=fix(last))
             break
-    return CheckResult(verdict, s.obs[-1][1], s.obs[-1][0], facts, [s.source()])
+    return CheckResult(verdict, s.obs[-1][1], s.obs[-1][0], text, [s.source()],
+                       correction=None if verdict == Verdict.vrai else fix(last))

@@ -26,7 +26,7 @@ Le schéma détaillé ci-dessous décrit le moteur Python. La partie « Chrome �
 │   messages │   ▼                 │  HTTP  │                        ExtractionResult.claims[]           │
 │ sidepanel.js ────────────────────┼───────►│   4. verify.py  (6 threads en parallèle)                   │
 │  - formulaire orateur/date       │        │        ├─ referentiel.check()  → verdict calculé            │
-│  - cartes verdict, seek          │◄───────┼        │     └─ Claude rédige l'explication (effort low)   │
+│  - cartes verdict, seek          │◄───────┼        │     └─ explication écrite en code (sans LLM)      │
 │  - onglet Profils                │  JSON  │        ├─ sinon web : Claude + web_search → JSON structuré │
 └──────────────────────────────────┘        │        └─ sinon inverifiable                               │
                                             │   5. db.py → SQLite                                        │

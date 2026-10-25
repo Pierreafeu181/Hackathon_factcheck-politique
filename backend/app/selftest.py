@@ -55,7 +55,7 @@ def main() -> None:
     # record « au plus bas depuis 60 ans » : la série commence en 1975 → au mieux imprécis
     r = referentiel.check(claim(claim_type=ClaimType.record, direction="baisse", value=60, unit=Unit.annees))
     assert r.verdict in {Verdict.faux, Verdict.imprecis}, r
-    print("record :", r.verdict.value, "—", r.facts)
+    print("record :", r.verdict.value, "—", r.explanation)
 
     # séries mensuelles et annuelles (inflation, déficit) : périodes selon la fréquence
     inf, dfc = series["inflation"], series["deficit_public_pib"]
@@ -87,6 +87,25 @@ def main() -> None:
     assert rate_verdict(claim(indicator=None, value=20.0, unit=Unit.milliers), 15.4) is None
 
     assert referentiel.check(claim(value=8.0, unit=Unit.pourcent, period_end="2026-S1")) is None  # période illisible
+
+    # mémoire des vérifications web : reformulation normalisée, chiffre et date dans la clé
+    from . import verify as verify_mod
+    a = claim(indicator=None, claim="Un Français sur cinq vit sous le seuil de pauvreté.", value=20.0, unit=Unit.pourcent)
+    b = claim(indicator=None, claim="un francais sur cinq vit sous le seuil de pauvrete", value=20.0, unit=Unit.pourcent)
+    assert verify_mod.cache_key(a, "2026-10-25") == verify_mod.cache_key(b, "2026-10-25T10:00")
+    assert verify_mod.cache_key(a, "2026-10-25") != verify_mod.cache_key(b.model_copy(update={"value": 25.0}), "2026-10-25")
+    calls = []
+    def fake_web(c, d):
+        calls.append(c)
+        return Verification(verdict=Verdict.faux, method=Method.web, explanation="x", confidence=0.7,
+                            sources=[{"title": "INSEE", "url": "https://www.insee.fr/fr/statistiques/5759045", "publisher": "INSEE"}])
+    real_web, verify_mod._from_web = verify_mod._from_web, fake_web
+    try:
+        verify_mod.verify(a, "2026-10-25"); verify_mod.verify(b, "2026-10-25")
+    finally:
+        verify_mod._from_web = real_web
+        verify_mod._web_cache.clear()
+    assert len(calls) == 1, calls
 
     # indicateur inconnu → None (part en recherche web)
     assert referentiel.check(claim(indicator="taux_pauvrete", value=14.0)) is None

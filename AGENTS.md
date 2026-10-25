@@ -62,7 +62,7 @@ docs/                    ← plan, architecture, contrat, méthodologie, sources
 ## 3. Règles non négociables
 
 1. **Deux formats, un seul à respecter pour l'échange.** `shared/contract.ts` est le format entre l'extension, le serveur et le moteur ; on ne le modifie **qu'en équipe**. Son miroir Python est dans `backend/app/models.py` (section « POST /check ») : si l'un change, l'autre change **dans le même commit**. Le modèle interne Python (`ExtractedClaim`, `Verification`, 6 verdicts) est plus riche ; il est converti par `app/check_api.py`.
-2. **Les chiffres sont comparés en code, pas par le LLM.** Le LLM extrait, normalise (indicateur, période, unité) et rédige. La décision chiffrée vient de `referentiel.py`.
+2. **Les chiffres sont comparés en code, pas par le LLM.** Le LLM extrait et normalise (indicateur, période, unité). La décision chiffrée vient de `referentiel.py`, qui écrit aussi l'explication et la correction (aucun appel au LLM pour ces affirmations).
 3. **Toujours une source.** Un verdict autre que `invérifiable` avec une liste de sources vide est un bug.
 4. **Neutralité.** On juge des **affirmations**, jamais des personnes. Pas de mot « fake », « menteur », etc. dans l'UI ni dans les prompts. Voir `docs/METHODOLOGIE.md`.
 5. **Pas de secret dans le repo.** Les clés vont dans `backend/.env` et `server/.env`, ignorés par git. Les modèles de fichier sont les `.env.example`.
@@ -130,6 +130,8 @@ python scripts/fetch_insee.py
 - [x] Sources de vérification : Eurostat, data.gouv.fr (producteurs publics certifiés seulement), Banque mondiale, votes de l'Assemblée nationale ; Google Fact Check et Légifrance dès que leurs clés sont dans `.env`. Wikipédia, réseaux sociaux et blogs exclus comme preuves ; hiérarchie des sources dans les prompts — Lot C
 - [x] Référentiel élargi à 27 séries : inflation, croissance, PIB, Smic (INSEE), dette (INSEE), déficit et dépenses publiques (Eurostat) ; séries mensuelles et annuelles gérées par le comparateur — Lot C
 - [x] Outils sans clé `insee_publications` (recherche insee.fr) et `page_officielle_lire` (liste fermée de sites officiels) ; verdict web durci en code quand un taux officiel est trouvé — Lot C
+- [x] Moins d'appels au LLM : explication et correction des verdicts du référentiel écrites en code ; vérifications web gardées 24 h en mémoire (affirmation normalisée + date) — Lot C
+- [x] Fournisseur Mistral (offre gratuite, `MISTRAL_API_KEY`) dans `llm.py`, Gemini en secours ; inactif sans clé
 - [ ] Banque de France (clé du portail développeur) et OCDE (API refusée, 403)
 - [x] Pipeline complet testé sur Gemini 3.5 Flash-Lite (gratuit) : benchmark 10/10 (Claude seul 3/10, Gemini seul 6/10), vidéo réelle en 14 s, chat avec les votes de l'Assemblée. `gemini-3.8-flash` n'a que 20 requêtes/jour en gratuit : il sert de secours
 - [x] Aiven PostgreSQL branché (`DATABASE_URL`) : tables créées, analyses écrites et relues depuis Aiven

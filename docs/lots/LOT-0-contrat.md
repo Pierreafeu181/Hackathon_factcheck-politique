@@ -8,4 +8,4 @@ Si un lot a besoin d'un nouveau champ :
 3. Mettre à jour `DATA_CONTRACT.md` et ajouter une ligne au changelog.
 4. Prévenir l'équipe.
 
-Attention aux sorties structurées Claude : pas de contraintes numériques (`ge`, `le`) ni de `pattern` dans les modèles envoyés au LLM (`ExtractionResult`, `WebVerification`, `ExplanationText`). Garder des types simples.
+Attention aux sorties structurées Claude : pas de contraintes numériques (`ge`, `le`) ni de `pattern` dans les modèles envoyés au LLM (`ExtractionResult`, `WebVerification`). Garder des types simples.

@@ -123,13 +123,6 @@ class WebVerification(BaseModel):
     confidence: float
 
 
-class ExplanationText(BaseModel):
-    """Format demandé au LLM pour rédiger l'explication d'un verdict calculé en code."""
-
-    explanation: str
-    correction: Optional[str]
-
-
 # ---------------------------------------------------------------- objets stockés / API
 
 

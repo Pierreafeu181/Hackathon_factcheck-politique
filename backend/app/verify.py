@@ -1,22 +1,36 @@
 """Lot C — Routeur de vérification.
 
-1. Référentiel officiel (data/referentiel) : verdict calculé en code, le LLM ne fait que rédiger.
+1. Référentiel officiel (data/referentiel) : verdict, explication et correction produits en code, sans LLM.
 2. Sinon, recherche web par le LLM (confiance plafonnée à 0,7).
 3. Sinon, `inverifiable`.
 """
 from __future__ import annotations
 
+import logging
+import re
+import threading
+import time
+import unicodedata
+from collections import OrderedDict
 from urllib.parse import urlparse
 
-import json
-import logging
-
 from . import llm, referentiel
-from .models import ClaimType, ExplanationText, ExtractedClaim, Method, Unit, Verdict, Verification, WebVerification
+from .models import ClaimType, ExtractedClaim, Method, Unit, Verdict, Verification, WebVerification
 
 log = logging.getLogger(__name__)
 
 WEB_CONFIDENCE_CAP = 0.7
+WEB_CACHE_TTL, WEB_CACHE_MAX = 24 * 3600, 500
+_web_cache: OrderedDict[tuple, tuple[float, Verification]] = OrderedDict()
+_web_cache_lock = threading.Lock()
+
+
+def cache_key(claim: ExtractedClaim, speech_date: str | None) -> tuple:
+    """Même affirmation (reformulation normalisée, chiffre, unité, période) et même date → même vérification."""
+    text = unicodedata.normalize("NFKD", claim.claim).encode("ascii", "ignore").decode().lower()
+    text = " ".join(re.findall(r"[a-z0-9]+", text))
+    return (text, claim.value, claim.unit, claim.bound, claim.direction, claim.period_start, claim.period_end,
+            claim.geo.lower(), (speech_date or "")[:10])
 
 
 # Jamais des preuves : sources modifiables par tous, réseaux sociaux, plateformes de blogs.
@@ -51,10 +65,23 @@ def verify(claim: ExtractedClaim, speech_date: str | None = None, use_web: bool 
     if result is not None:
         return _from_referentiel(claim, result)
     if use_web:
+        key = cache_key(claim, speech_date)
+        with _web_cache_lock:
+            hit = _web_cache.get(key)
+            if hit and time.time() - hit[0] < WEB_CACHE_TTL:
+                _web_cache.move_to_end(key)
+                return hit[1].model_copy(deep=True)
         try:
-            return _from_web(claim, speech_date)
+            result = _from_web(claim, speech_date)
         except Exception as e:  # la démo ne doit pas planter sur une affirmation
             log.warning("vérification web impossible : %s", e)
+        else:
+            if result.sources:  # seulement les verdicts sourcés : un échec passager ne doit pas rester en mémoire
+                with _web_cache_lock:
+                    _web_cache[key] = (time.time(), result)
+                    while len(_web_cache) > WEB_CACHE_MAX:
+                        _web_cache.popitem(last=False)
+            return result
     return Verification(
         verdict=Verdict.inverifiable, method=Method.aucun, confidence=0.0,
         explanation="Aucune donnée officielle du référentiel ne couvre cette affirmation et la recherche web n'a pas abouti.",
@@ -62,25 +89,12 @@ def verify(claim: ExtractedClaim, speech_date: str | None = None, use_web: bool 
 
 
 def _from_referentiel(claim: ExtractedClaim, r: referentiel.CheckResult) -> Verification:
-    user = json.dumps({
-        "affirmation": claim.claim,
-        "citation": claim.quote,
-        "verdict_calcule": r.verdict.value,
-        "constat_chiffre": r.facts,
-        "sources": [s.model_dump() for s in r.sources],
-    }, ensure_ascii=False, indent=1)
-    try:
-        text = llm.parse(llm.prompt("verify_explain"), user, ExplanationText, effort="low", max_tokens=2000)
-        explanation, correction = text.explanation, text.correction
-    except Exception as e:
-        log.warning("rédaction LLM impossible, on garde le constat brut : %s", e)
-        explanation, correction = r.facts, None
-    if r.verdict == Verdict.vrai:
-        correction = None
+    """Verdict, explication et correction viennent du code : aucun appel au LLM, et le texte ne peut pas
+    contredire le chiffre."""
     return Verification(
         verdict=r.verdict, method=Method.referentiel,
         official_value=r.official_value, official_period=r.official_period,
-        correction=correction, explanation=explanation, sources=r.sources, confidence=r.confidence,
+        correction=r.correction, explanation=r.explanation, sources=r.sources, confidence=r.confidence,
     )
 
 

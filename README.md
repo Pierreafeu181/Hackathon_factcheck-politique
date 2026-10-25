@@ -25,7 +25,7 @@ Sur une vidéo YouTube, un article, une phrase sélectionnée ou un podcast suiv
                                   shared/contract.ts = format d'échange (miroir Python : backend/app/models.py, section « POST /check »)
 ```
 
-Principe clé : **c'est le code qui tranche sur les chiffres, pas le LLM.** Le LLM extrait, normalise et rédige. La comparaison aux données officielles est déterministe, reproductible et sourcée.
+Principe clé : **c'est le code qui tranche sur les chiffres, pas le LLM.** Le LLM extrait et normalise ; sur nos séries officielles, l'explication et la correction sont aussi écrites par le code. La comparaison aux données officielles est déterministe, reproductible et sourcée.
 
 ## Lancer le tout
 
