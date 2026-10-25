@@ -1,12 +1,13 @@
 # Evidence it works
 
-Three runs of the same benchmark (`scripts/benchmark.py`, 10 claims, answers set by the latest INSEE / DARES figures). The baseline is always the same model with no data and no tools.
+Four runs of the same benchmark (`scripts/benchmark.py`, 10 claims, answers set by the latest INSEE / DARES figures). The baseline is always the same model with no data and no tools.
 
 | Engine | Vérif'Pol | Naive baseline | Time per claim |
 |---|---|---|---|
 | Claude Sonnet 5.5 (22 Oct 2026) | **10/10** (9/10 before the bound fix) | 3/10 | 14 s |
 | Gemini 3.5 Flash-Lite, free tier (23 Oct 2026) | **10/10** | 6/10 | 55 s (free-tier rate limits) |
 | Gemini 3.5 Flash-Lite, free tier, inflation and debt in the frozen reference (25 Oct 2026) | **10/10** | 5/10 | 26 s |
+| Same, explanations written in code instead of by the LLM (25 Oct 2026) | **10/10** | 6/10 | **3 s** |
 
 Detail of the latest run:
 
@@ -14,13 +15,13 @@ Benchmark run on 2026-10-25 with `gemini-3.5-flash-lite`: 10 claims dated 2026-1
 
 | | Vérif'Pol | Naive baseline |
 |---|---|---|
-| Correct verdicts | **10/10** | 5/10 |
+| Correct verdicts | **10/10** | 6/10 |
 | Verdicts backed by an official source | **10/10** | 0/10 |
-| Average time per claim | 26 s | 2 s |
+| Average time per claim | 3 s | 4 s |
 
 | Claim | Truth (official figure) | Vérif'Pol | Baseline |
 |---|---|---|---|
-| Aujourd'hui, le taux de chômage est de 8,3 %. | **vrai** · 8,3 % (INSEE, T2 2026) | vrai ✅ | invérifiable ❌ |
+| Aujourd'hui, le taux de chômage est de 8,3 %. | **vrai** · 8,3 % (INSEE, T2 2026) | vrai ✅ | vrai ✅ |
 | Le chômage est tombé à 6,5 %, son plus bas niveau. | **faux** · 8,3 % (INSEE, T2 2026) | faux ✅ | invérifiable ❌ |
 | Depuis 2017, le chômage a baissé de plus de trois points. | **faux** · 9,4 % en 2017 → 8,3 % : −1,1 point | trompeur ✅ | vrai ❌ |
 | Le chômage des moins de 25 ans dépasse 20 %. | **vrai** · 21,6 % (INSEE, T2 2026) | vrai ✅ | vrai ✅ |
