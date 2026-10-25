@@ -231,10 +231,13 @@ async function autoCheck(page: Page, force = false, intro?: string): Promise<voi
     }
     if (!request.segments.length) throw new Error("Je n'ai pas trouvé de texte à vérifier sur cette page.");
     msg.setText("J'extrais les affirmations et je les compare aux données officielles… (30 s à 2 min)");
+    // Date de publication : un propos de 2025 se compare aux chiffres de 2025, pas à ceux d'aujourd'hui.
+    const date = page.kind === "video" ? undefined : await publicationDate(page.tabId, page.videoId);
     const req: CheckRequest = {
       ...request,
       source: { ...request.source, title: page.title },
       ...(page.speaker && { politician: { name: page.speaker } }),
+      ...(date && { date }),
     };
     const res = await checkClaims(req, force);
     page.claims = res.claims;
@@ -243,6 +246,56 @@ async function autoCheck(page: Page, force = false, intro?: string): Promise<voi
     msg.fail(explain(err));
   } finally {
     setAnalyzing(-1);
+  }
+}
+
+/**
+ * Date de publication (AAAA-MM-JJ) de la vidéo YouTube ou de l'article affiché, ou undefined.
+ * YouTube : données du lecteur, seulement si elles concernent bien la vidéo affichée (navigation sans rechargement).
+ * Articles : balises standard des sites de presse (article:published_time, JSON-LD datePublished, <time>).
+ */
+async function publicationDate(tabId: number, videoId?: string): Promise<string | undefined> {
+  try {
+    const [{ result }] = await chrome.scripting.executeScript({
+      target: { tabId },
+      world: "MAIN",
+      args: [videoId ?? null],
+      func: (vid: string | null) => {
+        const day = (v: unknown) => (typeof v === "string" && /^\d{4}-\d{2}-\d{2}/.test(v) ? v.slice(0, 10) : undefined);
+        const attr = (sel: string, name = "content") => document.querySelector(sel)?.getAttribute(name);
+        if (vid) {
+          const player = document.getElementById("movie_player") as (HTMLElement & { getPlayerResponse?: () => any }) | null;
+          const res = player?.getPlayerResponse?.();
+          const micro = res?.videoDetails?.videoId === vid ? res?.microformat?.playerMicroformatRenderer : undefined;
+          const fromPlayer = day(micro?.publishDate) ?? day(micro?.uploadDate);
+          if (fromPlayer) return fromPlayer;
+          return attr('meta[itemprop="identifier"]') === vid
+            ? day(attr('meta[itemprop="datePublished"]')) ?? day(attr('meta[itemprop="uploadDate"]'))
+            : undefined;
+        }
+        for (const sel of ['meta[property="article:published_time"]', 'meta[itemprop="datePublished"]',
+          'meta[property="og:published_time"]', 'meta[name="date"]', 'meta[name="pubdate"]']) {
+          const found = day(attr(sel));
+          if (found) return found;
+        }
+        const inLd = (o: any): string | undefined => {
+          if (!o || typeof o !== "object") return undefined;
+          if (Array.isArray(o)) return o.map(inLd).find(Boolean);
+          return day(o.datePublished) ?? inLd(o["@graph"]);
+        };
+        for (const script of document.querySelectorAll('script[type="application/ld+json"]')) {
+          try {
+            const found = inLd(JSON.parse(script.textContent ?? ""));
+            if (found) return found;
+          } catch { /* JSON-LD mal formé : on passe au suivant */ }
+        }
+        return day(attr("article time[datetime]", "datetime")) ?? day(attr("time[datetime]", "datetime"));
+      },
+    });
+    const found = result as string | undefined;
+    return found && found <= new Date().toISOString().slice(0, 10) ? found : undefined; // jamais une date future
+  } catch {
+    return undefined; // page protégée (chrome://, Web Store…) : analyse sans date
   }
 }
 

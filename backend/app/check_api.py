@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
+import unicodedata
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlparse
 
@@ -42,8 +44,27 @@ def is_official(url: str, method: Method) -> bool:
     return any(host == d or host.endswith("." + d) for d in OFFICIAL_DOMAINS)
 
 
+def _name(text: str) -> list[str]:
+    text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode().lower()
+    return re.findall(r"[a-z]+", text)
+
+
+def same_person(author: str | None, politician: str) -> bool:
+    """« Farandou », « Jean-Pierre Farandou », « le ministre Jean-Pierre Farandou » → même personne (le nom de famille suffit)."""
+    words, target = _name(author or ""), _name(politician)
+    return bool(target) and words != ["article"] and target[-1] in words
+
+
+def author_label(author: str | None) -> str | None:
+    if not author:
+        return None
+    return "Affirmé par l'article" if author.strip().lower() == "article" else f"Affirmé par {author.strip()}"
+
+
 def to_contract(claim_id: str, claim: ExtractedClaim, v: Verification, with_start: bool) -> CheckClaim:
     parts = []
+    if label := author_label(claim.author):  # article : qui avance l'affirmation (le contrat n'a pas de champ dédié)
+        parts.append(f"{label}.")
     if v.verdict in NUANCE:
         parts.append(f"{NUANCE[v.verdict]} :")
     parts.append(v.explanation)
@@ -65,7 +86,8 @@ def check(req: CheckRequest) -> CheckResponse:
     segments = [TranscriptSegment(start=s.start or 0.0, text=s.text) for s in req.segments if s.text.strip()]
     speaker = req.politician.name if req.politician else "l'orateur principal (nom non fourni)"
 
-    claims = extract_claims(to_prompt_text(segments), speaker, CATEGORIES, req.date)[:MAX_CLAIMS]
+    article = req.source.kind == "article"
+    claims = extract_claims(to_prompt_text(segments), speaker, CATEGORIES, req.date, article=article)[:MAX_CLAIMS]
     with ThreadPoolExecutor(max_workers=6) as pool:
         verifications = list(pool.map(lambda c: verify(c, req.date), claims))
 
@@ -78,6 +100,8 @@ def check(req: CheckRequest) -> CheckResponse:
                         date=req.date, speaker=req.politician)
         db.save_speech(speech, db.dump_transcript(segments))
         for cid, c, v in zip(ids, claims, verifications):
+            if article and not same_person(c.author, req.politician.name):
+                continue  # fait de l'article ou d'une autre personne citée : pas dans le profil de la personnalité
             db.save_result(ClaimResult(id=cid, speech_id=speech_id, claim=c, verification=v), req.politician)
 
     return CheckResponse(claims=[to_contract(cid, c, v, with_start) for cid, c, v in zip(ids, claims, verifications)])

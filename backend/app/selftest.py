@@ -80,6 +80,17 @@ def main() -> None:
     assert r.verdict == Verdict.trompeur, r
     print(f"inflation {sept} % (2026-09), déficit {dfc.obs[-1][1]} % ({dfc.obs[-1][0]}), dette 2017→ OK")
 
+    # date du discours : comparaison aux chiffres disponibles à cette date
+    old_inf = referentiel.check(claim(indicator="inflation", category="economie", value=0.9, unit=Unit.pourcent), "2025-12-17")
+    nov = next(v for p, v in series["inflation"].obs if p == "2025-11")
+    assert old_inf.official_period == "2025-11" and old_inf.official_value == nov, old_inf
+    assert referentiel.check(claim(value=8.0, unit=Unit.pourcent), "1970-01-01") is None  # avant le début de la série
+    assert referentiel.check(claim(value=8.0, unit=Unit.pourcent), "pas une date").official_period == last_p
+
+    # année pas encore publiée (objectif) : pas de verdict calculé
+    assert referentiel.check(claim(indicator="deficit_public_pib", category="finances_publiques", value=5.0,
+                                   unit=Unit.pourcent, period_start="2027", period_end="2027")) is None
+
     # verdict web durci en code quand le modèle trouve un taux officiel (« un sur cinq » = 20 % contre 15,4 %)
     from .verify import rate_verdict
     poor = claim(indicator=None, category="autre", value=20.0, unit=Unit.pourcent)
@@ -215,6 +226,21 @@ def main() -> None:
     assert "Correction : corrigé" in resp.claims[1].explanation
     assert db.get_speech("yt:dQw4w9WgXcQ") is not None  # stocké car politician fourni
     print("/check :", [(c.verdict, c.start) for c in resp.claims])
+
+    # article : faits de l'article et des autres personnes citées vérifiés, mais hors du profil de la personnalité
+    assert check_api.same_person("le ministre Jean-Pierre Farandou", "Jean-Pierre Farandou")
+    assert check_api.same_person("Farandou", "Jean-Pierre Farandou") and not check_api.same_person("article", "Jean-Pierre Farandou")
+    article_claims = [claim(quote="le chômage est à 8,3 %", value=last_v, unit=Unit.pourcent, author="Personne Article"),
+                      claim(quote="8,3 % selon l'INSEE", value=last_v, unit=Unit.pourcent, author="article"),
+                      claim(quote="8,3 %", value=last_v, unit=Unit.pourcent, author="Autre Personne")]
+    check_api.extract_claims = lambda *a, **k: article_claims if k.get("article") else []
+    resp = check_api.check(CheckRequest.model_validate({
+        "source": {"kind": "article", "url": "https://www.exemple-presse.fr/article", "title": "t"},
+        "segments": [{"text": "…"}], "politician": {"name": "Personne Article"}}))
+    assert len(resp.claims) == 3 and resp.claims[1].explanation.startswith("Affirmé par l'article.")
+    assert resp.claims[2].explanation.startswith("Affirmé par Autre Personne.")
+    assert db.profile("personne-article").n_claims == 1  # seule sa propre affirmation compte
+    print("/check article : 3 affirmations, 1 dans le profil")
 
     print("\nOK — tous les autotests passent")
 

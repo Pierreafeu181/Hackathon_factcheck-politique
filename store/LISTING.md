@@ -6,7 +6,7 @@
 
 | Élément | Fichier |
 |---|---|
-| Paquet à envoyer | `store/verifpol-1.0.0.zip` |
+| Paquet à envoyer | `store/verifpol-1.0.1.zip` |
 | Icône 128 × 128 | `extension/static/icons/icon128.png` |
 | Captures 1280 × 800 | `store/screenshot-1-verdicts.png`, `store/screenshot-2-profils.png`, `store/screenshot-3-veille.png` |
 | Politique de confidentialité | https://01a16824-5586-7784-b544-269ed9694450-8080.eur-1.aiven.app/privacy |
@@ -61,5 +61,5 @@
 
 1. Créer le compte développeur (frais d'inscription unique, vérification d'identité).
 2. Vérifier que la politique de confidentialité s'ouvre à l'adresse ci-dessus.
-3. Envoyer `store/verifpol-1.0.0.zip`, remplir la fiche avec ce document, joindre les 3 captures et l'icône.
+3. Envoyer `store/verifpol-1.0.1.zip`, remplir la fiche avec ce document, joindre les 3 captures et l'icône.
 4. Prévoir plusieurs jours d'examen : l'accès à tous les sites et la capture d'onglet déclenchent un examen approfondi.

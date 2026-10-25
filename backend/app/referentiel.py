@@ -7,10 +7,13 @@ Conventions de période (documentées dans docs/METHODOLOGIE.md), selon la fréq
 - "AAAA-Tn" / "AAAA-Qn" → le trimestre exact (série mensuelle : moyenne de ses mois ; annuelle : l'année) ;
 - "AAAA-MM"            → le mois exact (série trimestrielle : le trimestre qui le contient ; annuelle : l'année) ;
 - "AAAA"               → moyenne des observations de l'année (série annuelle : la valeur de l'année) ;
-- None en fin de période → dernière observation disponible.
+- None en fin de période → dernière observation disponible (à la date du discours si elle est connue : un propos
+  de décembre 2025 se compare aux chiffres publiés à ce moment-là, pas à ceux d'aujourd'hui).
 """
 from __future__ import annotations
 
+import dataclasses
+import datetime as dt
 import json
 import re
 from dataclasses import dataclass, field
@@ -99,6 +102,20 @@ def _t(period: str) -> float:
     raise ValueError(f"période illisible : {period!r}")
 
 
+def _end(period: str) -> float:
+    """Fin de la période, en année décimale."""
+    return _t(period) + (1 / 12 if _M.match(period) else 0.25 if _Q.match(period) else 1.0)
+
+
+def as_of(s: Series, date: str) -> Series | None:
+    """La série telle qu'on pouvait la connaître à cette date : seulement les périodes terminées (valeurs révisées
+    d'aujourd'hui ; le délai de publication de quelques semaines n'est pas modélisé)."""
+    d = dt.date.fromisoformat(date[:10])
+    now = d.year + (d.timetuple().tm_yday - 1) / (366 if d.year % 4 == 0 else 365)
+    obs = [o for o in s.obs if _end(o[0]) <= now + 1e-9]
+    return dataclasses.replace(s, obs=obs) if obs else None
+
+
 def _norm(period: str) -> str:
     """« 2026-t2 » → « 2026-Q2 » ; le reste inchangé."""
     period = period.strip().upper()
@@ -121,6 +138,8 @@ def value_at(s: Series, period: str | None) -> tuple[float, str] | None:
         return s.obs[-1][1], s.obs[-1][0]
     period = _norm(period)
     last = s.obs[-1][0]
+    if int(period[:4]) > int(last[:4]):
+        return None  # année pas encore publiée (souvent un objectif : « le déficit à 5 % en 2027 ») : pas de verdict calculé
     monthly, annual = bool(_M.match(last)), bool(_Y.match(last))
     if (q := _Q.match(period)) and monthly:
         y, n = q[1], int(q[2])
@@ -241,11 +260,18 @@ def _grade(diff: float, tol: dict[str, float], worst: Verdict = Verdict.faux) ->
     return worst
 
 
-def check(claim: ExtractedClaim) -> CheckResult | None:
+def check(claim: ExtractedClaim, speech_date: str | None = None) -> CheckResult | None:
     """Renvoie un verdict calculé, ou None si le référentiel ne couvre pas l'affirmation."""
     s = load().get(claim.indicator or "")
     if s is None:
         return None
+    if speech_date:
+        try:
+            s = as_of(s, speech_date)
+        except ValueError:
+            pass  # date illisible : on garde toute la série
+        if s is None:
+            return None  # discours antérieur à la série
     try:
         if claim.claim_type == ClaimType.niveau:
             return _check_level(claim, s)

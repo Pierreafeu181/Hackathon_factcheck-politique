@@ -84,6 +84,10 @@ class ExtractedClaim(BaseModel):
     period_start: Optional[str] = Field(description="Début de période, format AAAA, AAAA-Tn ou AAAA-MM, ou null")
     period_end: Optional[str] = Field(description="Fin de période, format AAAA, AAAA-Tn ou AAAA-MM, ou null (= aujourd'hui)")
     geo: str = Field(description="Périmètre géographique, 'France' par défaut")
+    author: Optional[str] = Field(
+        default=None,
+        description="Article seulement : nom de la personne qui avance l'affirmation, ou 'article' pour un fait affirmé "
+                    "par le texte lui-même ; null pour un discours")
 
 
 class ExtractionResult(BaseModel):

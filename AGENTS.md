@@ -132,6 +132,9 @@ python scripts/fetch_insee.py
 - [x] Outils sans clé `insee_publications` (recherche insee.fr) et `page_officielle_lire` (liste fermée de sites officiels) ; verdict web durci en code quand un taux officiel est trouvé — Lot C
 - [x] Moins d'appels au LLM : explication et correction des verdicts du référentiel écrites en code ; vérifications web gardées 24 h en mémoire (affirmation normalisée + date) — Lot C
 - [x] Fournisseur Mistral (offre gratuite, `MISTRAL_API_KEY`) dans `llm.py`, Gemini en secours ; inactif sans clé
+- [x] Date du discours : l'extension envoie la date de publication (YouTube, balises des articles) ; le référentiel compare aux chiffres disponibles à cette date ; les années pas encore publiées (objectifs) ne sont plus comparées — Lots A/C
+- [x] Articles : faits avancés par l'article et par chaque personne citée vérifiés aussi (« Affirmé par … » dans l'explication) ; seules les affirmations de la personnalité vont dans son profil — Lots B/C
+- [ ] Extension 1.0.1 (date de publication) à envoyer sur le Chrome Web Store : `store/verifpol-1.0.1.zip`
 - [ ] Banque de France (clé du portail développeur) et OCDE (API refusée, 403)
 - [x] Pipeline complet testé sur Gemini 3.5 Flash-Lite (gratuit) : benchmark 10/10 (Claude seul 3/10, Gemini seul 6/10), vidéo réelle en 14 s, chat avec les votes de l'Assemblée. `gemini-3.8-flash` n'a que 20 requêtes/jour en gratuit : il sert de secours
 - [x] Aiven PostgreSQL branché (`DATABASE_URL`) : tables créées, analyses écrites et relues depuis Aiven

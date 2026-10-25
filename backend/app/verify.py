@@ -68,7 +68,7 @@ def rate_verdict(claim: ExtractedClaim, official: float | None) -> tuple[Verdict
 
 
 def verify(claim: ExtractedClaim, speech_date: str | None = None, use_web: bool = True) -> Verification:
-    result = referentiel.check(claim)
+    result = referentiel.check(claim, speech_date)
     if result is not None:
         return _from_referentiel(claim, result)
     if use_web:

@@ -7,8 +7,12 @@ from . import llm, referentiel
 from .models import Category, ExtractedClaim, ExtractionResult
 
 
-def extract_claims(transcript_text: str, speaker: str, categories: list[Category], date: str | None = None) -> list[ExtractedClaim]:
+def extract_claims(transcript_text: str, speaker: str, categories: list[Category], date: str | None = None,
+                   article: bool = False) -> list[ExtractedClaim]:
+    """`article=True` : on extrait aussi les faits avancés par l'article et par chaque personne citée (champ author)."""
     system = llm.prompt("extract").replace("{{INDICATORS}}", referentiel.indicators_for_prompt())
+    if article:
+        system += "\n" + llm.prompt("extract_article")
     user = (
         f"Orateur : {speaker}\n"
         # Sans date, certains modèles (Gemini) n'extraient rien : on donne la date d'analyse.
@@ -18,4 +22,10 @@ def extract_claims(transcript_text: str, speaker: str, categories: list[Category
     )
     result = llm.parse(system, user, ExtractionResult, effort="medium")
     wanted = {c.value for c in categories}
-    return [c for c in result.claims if c.checkable and c.category.value in wanted]
+    claims = [c for c in result.claims if c.checkable and c.category.value in wanted]
+    for c in claims:
+        if article:
+            c.timestamp_start = None
+        else:
+            c.author = None  # discours : tout est de l'orateur
+    return claims
