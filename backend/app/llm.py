@@ -69,8 +69,9 @@ def prompt(name: str) -> str:
     return (PROMPTS_DIR / f"{name}.md").read_text(encoding="utf-8")
 
 
-def parse(system: str, user: str, schema: type[T], effort: str = "medium", max_tokens: int = 16000) -> T:
-    """Appel LLM avec sortie structurée validée par Pydantic."""
+def parse(system: str, user: str, schema: type[T], effort: str = "medium", max_tokens: int = 16000,
+          extraction: bool = False) -> T:
+    """Appel LLM avec sortie structurée validée par Pydantic. `extraction=True` : modèle d'extraction (Gemini)."""
     if PROVIDER == "mistral":
         try:
             return _mistral_parse(system, user, schema, max_tokens)
@@ -79,7 +80,7 @@ def parse(system: str, user: str, schema: type[T], effort: str = "medium", max_t
                 raise
             log.warning("Mistral indisponible (%s), bascule sur Gemini", e)
     if PROVIDER in ("gemini", "mistral"):
-        return _gemini_parse(system, user, schema, max_tokens)
+        return _gemini_parse(system, user, schema, max_tokens, EXTRACT_MODEL if extraction else None)
     return _claude_parse(system, user, schema, effort, max_tokens)
 
 
@@ -125,39 +126,44 @@ def _gemini():
 
 
 FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-3.1-flash-lite")
-_fallback_until = 0.0
+# Extraction (une requête par vidéo, l'étape où les erreurs coûtent le plus) : modèle plus solide, limité à 20 requêtes
+# par jour en gratuit ; saturé ou quota épuisé → modèle rapide habituel. GEMINI_EXTRACT_MODEL= (vide) pour désactiver.
+EXTRACT_MODEL = os.getenv("GEMINI_EXTRACT_MODEL", "gemini-3.8-flash")
+_down_until: dict[str, float] = {}  # modèle → instant jusqu'auquel on l'évite (surcharge, quota du jour)
 
 
-def _gemini_call(contents, config):
+def _gemini_call(contents, config, prefer: str | None = None):
     """generate_content avec relance sur quota (429) et surcharge (503) : l'offre gratuite est plafonnée par minute.
-    Après deux surcharges, bascule sur le modèle de secours (moins demandé)."""
-    global _fallback_until
+    Chaîne de modèles : `prefer`, puis GEMINI_MODEL, puis FALLBACK_MODEL. Un modèle surchargé deux fois est évité
+    5 min (une boucle d'outils garde ainsi le même modèle d'un appel à l'autre), un quota du jour épuisé 1 h."""
     from google.genai import errors
-    delay, overloaded = 5.0, 0
-    # Bascule « collante » quelques minutes : une boucle d'outils garde le même modèle d'un appel à l'autre.
-    model = FALLBACK_MODEL if time.time() < _fallback_until else GEMINI_MODEL
-    for attempt in range(6):
+    chain = list(dict.fromkeys(m for m in (prefer, GEMINI_MODEL, FALLBACK_MODEL) if m))
+    available = [m for m in chain if time.time() >= _down_until.get(m, 0)] or chain[-1:]
+    idx, delay, overloaded = 0, 5.0, 0
+    for attempt in range(8):
+        model = available[idx]
         try:
             with _gemini_slots:
                 return _gemini().models.generate_content(model=model, contents=contents, config=config)
         except errors.APIError as e:
-            if e.code not in (429, 500, 503) or attempt == 5:
+            last = idx == len(available) - 1
+            if e.code not in (429, 500, 503) or attempt == 7:
                 raise
             if e.code == 503:
                 overloaded += 1
-                if overloaded >= 2 and model != FALLBACK_MODEL:
-                    log.warning("%s surchargé, bascule sur %s pour 5 min", model, FALLBACK_MODEL)
-                    model, _fallback_until = FALLBACK_MODEL, time.time() + 300
+                if overloaded >= 2 and not last:
+                    log.warning("%s surchargé, bascule sur %s pour 5 min", model, available[idx + 1])
+                    _down_until[model], idx, overloaded = time.time() + 300, idx + 1, 0
                     continue
             wait = delay
             if m := re.search(r"retryDelay['\": ]+(\d+)", str(e)):
                 wait = float(m.group(1)) + 1
             if e.code == 429 and wait > 120:
-                # Quota du jour épuisé (offre gratuite) : inutile d'attendre, on tente le modèle de secours.
-                if model == FALLBACK_MODEL:
+                # Quota du jour épuisé (offre gratuite) : inutile d'attendre, on passe au modèle suivant.
+                if last:
                     raise
-                log.warning("quota du jour épuisé sur %s, bascule sur %s", model, FALLBACK_MODEL)
-                model, _fallback_until = FALLBACK_MODEL, time.time() + 3600
+                log.warning("quota du jour épuisé sur %s, bascule sur %s", model, available[idx + 1])
+                _down_until[model], idx = time.time() + 3600, idx + 1
                 continue
             log.warning("Gemini %s, nouvel essai dans %.0f s", e.code, wait)
             time.sleep(min(wait, 60))
@@ -173,11 +179,11 @@ def _check_finish(resp) -> None:
         raise LLMRefusal(f"demande bloquée par Gemini ({resp.prompt_feedback.block_reason})")
 
 
-def _gemini_parse(system: str, user: str, schema: type[T], max_tokens: int) -> T:
+def _gemini_parse(system: str, user: str, schema: type[T], max_tokens: int, prefer: str | None = None) -> T:
     from google.genai import types
     resp = _gemini_call(user, types.GenerateContentConfig(
         system_instruction=system, max_output_tokens=max_tokens,
-        response_mime_type="application/json", response_schema=schema))
+        response_mime_type="application/json", response_schema=schema), prefer)
     _check_finish(resp)
     if isinstance(resp.parsed, schema):
         return resp.parsed

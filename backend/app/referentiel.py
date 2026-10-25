@@ -269,13 +269,27 @@ def _grade(diff: float, tol: dict[str, float], worst: Verdict = Verdict.faux) ->
 # Objectif ou prévision (« on vise 4,7 % de déficit », « la copie initiale à 4,7 % ») : jamais comparé à un chiffre
 # publié. Garde-fou en plus de la consigne d'extraction, que les petits modèles ne suivent pas toujours.
 TARGET = re.compile(r"\b(vis(e|ons|ent|er|é|ait)|objectifs?|cibles?|ramener|prévoi[ts]?|prévu[es]*|copie|devrai(t|ent)|"
-                    r"d'ici|projet de (loi|budget)|PLF|PLFSS|trajectoire)\b", re.IGNORECASE)
+                    r"d'ici|projet de (loi|budget)|loi de finances|PLF|PLFSS|trajectoire|Sénat|amendements?)\b", re.IGNORECASE)
+
+# Indicateurs souvent confondus : un chiffre faux pour l'un mais juste pour l'autre vaut « imprécis », pas « faux »
+# (le chiffre existe, il est attribué au mauvais indicateur).
+SIBLINGS = {
+    "taux_activite_15_64": ["taux_emploi_15_64"], "taux_emploi_15_64": ["taux_activite_15_64"],
+    "taux_chomage_bit": ["taux_chomage_moins_25"],
+    "demandeurs_emploi_cat_a": ["demandeurs_emploi_cat_abc", "nb_chomeurs_bit"],
+    "demandeurs_emploi_cat_abc": ["demandeurs_emploi_cat_a", "nb_chomeurs_bit"],
+    "nb_chomeurs_bit": ["demandeurs_emploi_cat_a", "demandeurs_emploi_cat_abc"],
+    "smic_mensuel_net": ["smic_mensuel_brut"], "smic_mensuel_brut": ["smic_mensuel_net"],
+    "croissance_pib_annuelle": ["croissance_pib_trimestrielle"], "croissance_pib_trimestrielle": ["croissance_pib_annuelle"],
+    "demandes_asile_total": ["demandes_asile_premieres"], "demandes_asile_premieres": ["demandes_asile_total"],
+    "violences_intrafamiliales": ["violences_hors_famille"], "violences_hors_famille": ["violences_intrafamiliales"],
+}
 
 
 def check(claim: ExtractedClaim, speech_date: str | None = None) -> CheckResult | None:
     """Renvoie un verdict calculé, ou None si le référentiel ne couvre pas l'affirmation."""
     s = load().get(claim.indicator or "")
-    if s is None or TARGET.search(claim.quote or ""):
+    if s is None or TARGET.search(f"{claim.quote or ''} {claim.claim or ''}"):
         return None
     if speech_date:
         try:
@@ -290,9 +304,30 @@ def check(claim: ExtractedClaim, speech_date: str | None = None) -> CheckResult 
         result = checker(claim, s) if checker else None
     except ValueError:  # période illisible renvoyée par le modèle (« 2026-S1 ») : on passe à la recherche
         return None
+    if result and claim.claim_type == ClaimType.niveau and result.verdict in (Verdict.faux, Verdict.imprecis):
+        result = _sibling(claim, result, speech_date)
     if result and s.publisher.startswith("SSMSI"):
         result.explanation += (" Il s'agit de faits enregistrés par la police et la gendarmerie : leur évolution dépend "
                                "aussi du nombre de plaintes déposées.")
+    return result
+
+
+def _sibling(c: ExtractedClaim, result: CheckResult, speech_date: str | None) -> CheckResult:
+    """Le chiffre est-il juste pour un indicateur voisin (taux d'emploi cité comme taux d'activité…) ?"""
+    for key in SIBLINGS.get(c.indicator or "", []):
+        other = load()[key]
+        if speech_date:
+            try:
+                other = as_of(other, speech_date)
+            except ValueError:
+                pass
+        alt = _check_level(c.model_copy(update={"indicator": key}), other) if other else None
+        if alt and alt.verdict in (Verdict.vrai, Verdict.plutot_vrai):
+            return dataclasses.replace(
+                result, verdict=Verdict.imprecis, sources=result.sources + alt.sources,
+                explanation=(f"{result.explanation} Ce chiffre correspond en revanche à l'indicateur « {_inline(other)} » "
+                             f"({_value(alt.official_value, other)} {_period(alt.official_period)}) : les deux sont souvent "
+                             f"confondus."))
     return result
 
 

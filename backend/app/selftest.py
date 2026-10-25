@@ -103,6 +103,15 @@ def main() -> None:
                                 direction="hausse", period_start="2025"), "2026-10-25")
     assert r.verdict == Verdict.vrai and "d'un record" in r.explanation, r
 
+    # confusion d'indicateurs : 69 % cité comme taux d'activité, c'est le taux d'emploi → imprécis, pas faux
+    emp = series["taux_emploi_15_64"].obs[-1][1]
+    r = referentiel.check(claim(indicator="taux_activite_15_64", value=emp, unit=Unit.pourcent))
+    assert r.verdict == Verdict.imprecis and "taux d'emploi" in r.explanation and len(r.sources) == 2, r
+    r = referentiel.check(claim(indicator="taux_activite_15_64", value=50.0, unit=Unit.pourcent))
+    assert r.verdict == Verdict.faux, r  # aucun indicateur voisin ne colle : reste faux
+    assert referentiel.check(claim(indicator="deficit_public_pib", quote="le Sénat a remis le déficit à 5,3 %",
+                                   value=5.3, unit=Unit.pourcent)) is None
+
     # objectif ou prévision dans la citation : pas de verdict calculé
     for quote in ("la copie initiale à 4,7 % de déficit", "on vise 5 % de déficit", "ramener le déficit à 4,7 %"):
         assert referentiel.check(claim(indicator="deficit_public_pib", quote=quote, value=4.7, unit=Unit.pourcent)) is None, quote

@@ -20,7 +20,7 @@ def extract_claims(transcript_text: str, speaker: str, categories: list[Category
         f"Catégories à couvrir : {', '.join(c.value for c in categories)}\n\n"
         f"<transcript>\n{transcript_text}\n</transcript>"
     )
-    result = llm.parse(system, user, ExtractionResult, effort="medium")
+    result = llm.parse(system, user, ExtractionResult, effort="medium", extraction=True)
     wanted = {c.value for c in categories}
     claims = [c for c in result.claims if c.checkable and c.category.value in wanted]
     for c in claims:

@@ -34,6 +34,10 @@ Hors référentiel (recherche par le modèle), le même barème est demandé dan
 - présent ou « aujourd'hui » → **dernier point disponible à la date du discours** (l'extension envoie la date de publication de la vidéo ou de l'article ; sans date, dernier point publié). On compare aux valeurs révisées d'aujourd'hui ; le délai de publication de quelques semaines n'est pas modélisé ;
 - année pas encore publiée (« le déficit à 5 % en 2027 ») → pas de verdict calculé : c'est en général un objectif.
 
+## Confusions d'indicateurs
+
+Si le chiffre avancé est faux pour l'indicateur cité mais juste pour un indicateur voisin (taux d'activité / taux d'emploi, chômage BIT / demandeurs d'emploi, Smic brut / net, premières demandes d'asile / total…), le verdict est **imprécis**, pas faux, et l'explication cite les deux séries (`SIBLINGS` dans `referentiel.py`).
+
 ## Articles de presse
 
 Sur un article, on vérifie aussi les faits avancés par le texte lui-même et par chaque personne citée. L'explication commence par « Affirmé par l'article » ou « Affirmé par <nom> ». Seules les affirmations de la personnalité indiquée entrent dans son profil de fiabilité.
