@@ -6,6 +6,8 @@
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import re
 import threading
@@ -21,16 +23,21 @@ log = logging.getLogger(__name__)
 
 WEB_CONFIDENCE_CAP = 0.7
 WEB_CACHE_TTL, WEB_CACHE_MAX = 24 * 3600, 500
-_web_cache: OrderedDict[tuple, tuple[float, Verification]] = OrderedDict()
+_web_cache: OrderedDict[str, tuple[float, Verification]] = OrderedDict()
 _web_cache_lock = threading.Lock()
 
 
-def cache_key(claim: ExtractedClaim, speech_date: str | None) -> tuple:
-    """Même affirmation (reformulation normalisée, chiffre, unité, période) et même date → même vérification."""
-    text = unicodedata.normalize("NFKD", claim.claim).encode("ascii", "ignore").decode().lower()
-    text = " ".join(re.findall(r"[a-z0-9]+", text))
-    return (text, claim.value, claim.unit, claim.bound, claim.direction, claim.period_start, claim.period_end,
-            claim.geo.lower(), (speech_date or "")[:10])
+def _canon(text: str) -> str:
+    """Casse, accents et ponctuation ignorés ; les lettres non latines sont gardées (jamais de clé vide par effacement)."""
+    text = "".join(ch for ch in unicodedata.normalize("NFKD", text.casefold()) if not unicodedata.combining(ch))
+    return " ".join(re.findall(r"\w+", text))
+
+
+def cache_key(claim: ExtractedClaim, speech_date: str | None) -> str:
+    """Empreinte de tout ce qui entre dans le prompt ou le calcul du verdict : mêmes entrées → même vérification."""
+    canon = claim.model_dump(mode="json", exclude={"timestamp_start", "checkable", "category"})
+    canon.update(claim=_canon(claim.claim), quote=_canon(claim.quote), geo=_canon(claim.geo), date=(speech_date or "")[:10])
+    return hashlib.sha256(json.dumps(canon, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
 # Jamais des preuves : sources modifiables par tous, réseaux sociaux, plateformes de blogs.

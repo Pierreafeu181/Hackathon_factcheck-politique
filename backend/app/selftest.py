@@ -94,6 +94,10 @@ def main() -> None:
     b = claim(indicator=None, claim="un francais sur cinq vit sous le seuil de pauvrete", value=20.0, unit=Unit.pourcent)
     assert verify_mod.cache_key(a, "2026-10-25") == verify_mod.cache_key(b, "2026-10-25T10:00")
     assert verify_mod.cache_key(a, "2026-10-25") != verify_mod.cache_key(b.model_copy(update={"value": 25.0}), "2026-10-25")
+    assert verify_mod.cache_key(a, "2026-10-25") != verify_mod.cache_key(a.model_copy(update={"quote": "autre citation"}), "2026-10-25")
+    assert verify_mod.cache_key(a, "2026-10-25") != verify_mod.cache_key(a.model_copy(update={"claim_type": "comparaison"}), "2026-10-25")
+    assert verify_mod._canon("Дефицит 5 %") == "дефицит 5"  # lettres non latines gardées
+    assert verify_mod.cache_key(a.model_copy(update={"claim": "Дефицит"}), None) != verify_mod.cache_key(a.model_copy(update={"claim": "Долг"}), None)
     calls = []
     def fake_web(c, d):
         calls.append(c)
