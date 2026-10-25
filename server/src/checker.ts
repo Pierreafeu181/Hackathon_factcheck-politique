@@ -30,8 +30,17 @@ export async function check(req: CheckRequest): Promise<CheckResponse> {
   const url = process.env.CHECKER_URL;
   if (!url) return demoCheck(req);
   const res = await postJson(url, req);
-  if (res.status !== 200) throw new Error(`Moteur d'analyse : HTTP ${res.status}`);
+  if (res.status !== 200) throw new Error(engineError("Moteur d'analyse", res));
   return JSON.parse(res.text) as CheckResponse;
+}
+
+/** Message d'erreur du moteur à montrer tel quel (ex. quota du jour épuisé), sinon le code HTTP. */
+export function engineError(what: string, res: { status: number; text: string }): string {
+  try {
+    const detail = (JSON.parse(res.text) as { detail?: unknown }).detail;
+    if (typeof detail === "string" && detail) return detail;
+  } catch { /* pas du JSON */ }
+  return `${what} : HTTP ${res.status}`;
 }
 
 /**
@@ -52,7 +61,7 @@ export async function chat(req: ChatRequest): Promise<ChatResponse> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(req),
   });
-  if (!res.ok) throw new Error(`Chat : HTTP ${res.status} ${await res.text()}`);
+  if (!res.ok) throw new Error(engineError("Chat", { status: res.status, text: await res.text() }));
   return res.json();
 }
 

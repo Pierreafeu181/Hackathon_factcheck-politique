@@ -220,6 +220,16 @@ def main() -> None:
     assert llm._text([{"type": "thinking", "thinking": "…"}, {"type": "text", "text": "ok"}]) == "ok"
     print("llm : fournisseur", llm.PROVIDER, "/", llm.MODEL)
 
+    # quota du jour épuisé : 503 avec un message lisible (relayé jusqu'au panneau)
+    from fastapi.testclient import TestClient
+    from . import main as main_mod
+    real_check, main_mod.check_api.check = main_mod.check_api.check, lambda req: (_ for _ in ()).throw(llm.QuotaExhausted("test"))
+    try:
+        r = TestClient(main_mod.app).post("/check", json={"source": {"kind": "selection", "url": "https://x.fr/q"}, "segments": [{"text": "x"}]})
+        assert r.status_code == 503 and "quota du jour" in r.json()["detail"], r.text
+    finally:
+        main_mod.check_api.check = real_check
+
     # base de données
     db.init()
     sp = Speech(id="yt:TEST", video_id="TEST", url=None, title="t", date="2026-10-01",

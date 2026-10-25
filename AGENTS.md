@@ -167,6 +167,7 @@ Quand tu termines une tâche, **coche-la ici** dans ton commit.
 - **Périodes** : « depuis 2017 » = moyenne annuelle 2017 comparée au dernier point publié (voir `docs/METHODOLOGIE.md`).
 - **Délais** : `fetch` (undici) coupe à 5 min ; le serveur Node appelle le moteur avec `postJson` (`checker.ts`, `ENGINE_TIMEOUT_MS`, 15 min). Le moteur rend la main après `CHECK_DEADLINE_S` (240 s) de vérifications.
 - **Ports** : moteur Python sur 8000, serveur Node sur 8790. L'extension parle au serveur Node, qui parle au moteur Python.
+- **Quota du jour Gemini (gratuit)** : ~500 requêtes/jour par modèle et par projet Google, remise à zéro vers 9 h (Paris). Une longue interview coûte 30 à 60 appels. Épuisé → le moteur répond 503 avec un message lisible, relayé jusqu'au panneau. **Ne pas lancer benchmarks ni pré-analyses avec la clé de production** : utiliser une clé d'un autre projet Google en local.
 - **Gemini, offre gratuite** : pas de recherche Google (payante) → la vérification hors INSEE passe par nos outils (`tools.py`). Quota par minute : `llm.py` limite les appels parallèles (`GEMINI_MAX_PARALLEL`) et relance sur 429. Les échanges peuvent servir à Google pour améliorer ses modèles.
 - **Claude** (si `LLM_PROVIDER=anthropic`) : pas de `temperature`, pas de `budget_tokens`, pas de prefill ; utiliser `output_config.effort`. Recherche web `web_search_20260209`.
 - **Windows** : chemins longs → `git config core.longpaths true`.

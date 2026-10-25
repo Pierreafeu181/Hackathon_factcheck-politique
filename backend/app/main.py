@@ -8,10 +8,11 @@ import uuid
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
-from . import check_api, db, referentiel
+from . import check_api, db, llm, referentiel
 from .extract import extract_claims
 from .models import (AnalyzeRequest, AnalyzeResponse, CheckRequest, CheckResponse, ClaimResult, PoliticianProfile,
                      Speech)
@@ -29,6 +30,14 @@ from . import assemblee  # noqa: E402
 
 assemblee.prewarm()  # votes de l'Assemblée : téléchargés et indexés en arrière-plan
 
+
+
+@app.exception_handler(llm.QuotaExhausted)
+def _quota(_: Request, exc: llm.QuotaExhausted) -> JSONResponse:
+    """Message lisible jusque dans le panneau de l'extension (le serveur Node relaie `detail`)."""
+    return JSONResponse(status_code=503, content={"detail": (
+        "Le modèle d'IA gratuit a atteint son quota du jour : les analyses reprendront demain matin "
+        "(remise à zéro vers 9 h, heure de Paris). Les analyses déjà faites restent consultables.")})
 
 @app.get("/health")
 def health():

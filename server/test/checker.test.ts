@@ -41,3 +41,9 @@ test("postJson : attend au-delà du délai de fetch, abandonne après le délai 
     server.close();
   }
 });
+
+test("engineError : message du moteur relayé (quota du jour), code HTTP sinon", async () => {
+  const { engineError } = await import("../src/checker.ts");
+  assert.equal(engineError("Moteur", { status: 503, text: '{"detail":"Quota du jour épuisé"}' }), "Quota du jour épuisé");
+  assert.equal(engineError("Moteur", { status: 500, text: "Internal Server Error" }), "Moteur : HTTP 500");
+});

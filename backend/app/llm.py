@@ -51,6 +51,10 @@ class LLMRefusal(RuntimeError):
     pass
 
 
+class QuotaExhausted(RuntimeError):
+    """Quota du jour épuisé sur tous les modèles gratuits disponibles."""
+
+
 class ProviderDown(RuntimeError):
     """Le fournisseur refuse durablement (quota, panne) : on peut retenter ailleurs."""
 
@@ -139,7 +143,9 @@ def _gemini_call(contents, config, prefer: str | None = None):
     5 min (une boucle d'outils garde ainsi le même modèle d'un appel à l'autre), un quota du jour épuisé 1 h."""
     from google.genai import errors
     chain = list(dict.fromkeys(m for m in (prefer, GEMINI_MODEL, FALLBACK_MODEL) if m))
-    available = [m for m in chain if time.time() >= _down_until.get(m, 0)] or chain[-1:]
+    available = [m for m in chain if time.time() >= _down_until.get(m, 0)]
+    if not available:  # tous épuisés il y a moins d'une heure : inutile de rappeler Google
+        raise QuotaExhausted(f"quota du jour épuisé sur {', '.join(chain)}")
     idx, delay, overloaded = 0, 5.0, 0
     for attempt in range(8):
         model = available[idx]
@@ -162,7 +168,8 @@ def _gemini_call(contents, config, prefer: str | None = None):
             if e.code == 429 and wait > 120:
                 # Quota du jour épuisé (offre gratuite) : inutile d'attendre, on passe au modèle suivant.
                 if last:
-                    raise
+                    _down_until[model] = time.time() + 3600
+                    raise QuotaExhausted(f"quota du jour épuisé sur {', '.join(chain)}") from e
                 log.warning("quota du jour épuisé sur %s, bascule sur %s", model, available[idx + 1])
                 _down_until[model], idx = time.time() + 3600, idx + 1
                 continue
